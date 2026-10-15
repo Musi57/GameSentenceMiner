@@ -21,13 +21,13 @@ import time
 from PIL import Image
 from dataclasses import dataclass, field
 from datetime import datetime
-from difflib import SequenceMatcher
 from pathlib import Path
 from time import perf_counter
 import multiprocessing as mp
 import sys
 from typing import Any, Callable, Protocol, runtime_checkable
 
+from GameSentenceMiner.native.text import sequence_ratio
 from GameSentenceMiner.ocr.compare import (
     OCRCompareSettings,
     compare_ocr_results,
@@ -52,7 +52,6 @@ from GameSentenceMiner.ocr.gsm_ocr_config import (
     get_ocr_config,
     get_scene_furigana_filter_sensitivity,
 )
-from GameSentenceMiner.ocr.process_logging import start_ocr_process_log
 from GameSentenceMiner.owocr.owocr import ocr_runtime
 from GameSentenceMiner.owocr.owocr.ocr import normalize_japanese_ocr_dashes, normalize_japanese_ocr_text_and_segments
 from GameSentenceMiner.owocr.owocr.ocr_runtime import TextFiltering
@@ -96,6 +95,8 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_ocr_screenshots,
     get_ocr_area_select_ocr_hotkey,
     get_ocr_area_select_ocr_gamepad,
+    get_ocr_add_area_ocr_hotkey,
+    get_ocr_add_area_ocr_gamepad,
     get_ocr_global_pause_gamepad,
     get_ocr_global_pause_hotkey,
     get_ocr_subset_chunk_min_length,
@@ -164,8 +165,11 @@ TWO_PASS_OCR_V2_BOX_STABILITY_TOL = 3
 
 paused = False
 shutdown_requested = False
+_ocr_cleanup_complete = False
 ocr_metrics_capture_lock = threading.Lock()
 area_select_ocr_hotkey = "ctrl+shift+o"
+add_area_ocr_hotkey = "alt+shift+n"
+_add_ocr_area_lock = threading.Lock()
 manual_ocr_hotkey = "ctrl+shift+m"
 menu_ocr_hotkey = "ctrl+shift+g"
 whole_window_ocr_hotkey = "ctrl+shift+w"
@@ -1315,7 +1319,7 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         candidate_normalized = _v2_normalized_text(candidate_text)
         similarity = (
             round(
-                SequenceMatcher(None, previous_normalized, candidate_normalized, autojunk=False).ratio() * 100,
+                sequence_ratio(previous_normalized, candidate_normalized) * 100,
                 3,
             )
             if previous_normalized and candidate_normalized
@@ -1987,7 +1991,7 @@ def _v2_texts_stable(prev_text: str, new_text: str, duplicate_threshold: int) ->
         return False
 
     threshold = max(90, int(duplicate_threshold or 90))
-    return (SequenceMatcher(None, prev_norm, new_norm, autojunk=False).ratio() * 100) >= threshold
+    return (sequence_ratio(prev_norm, new_norm) * 100) >= threshold
 
 
 def _v2_text_is_evolving(prev_text: str, new_text: str, settings: OCRCompareSettings | None = None) -> bool:
@@ -2344,17 +2348,32 @@ def initialize_qt_runtime_for_ocr():
 def run_qt_event_loop_for_ocr(qt_main_module=None):
     qt_main = qt_main_module or _get_qt_main_module()
     app = qt_main.get_qt_app()
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        cleanup_ocr_runtime()
+
+
+def _queue_qt_quit_for_ocr() -> None:
+    from PyQt6.QtCore import QMetaObject, Qt
+    from PyQt6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app:
+        # Stop commands run on the bus thread. A direct app.quit() can deadlock
+        # there; post it to the GUI thread, including before exec() has started.
+        QMetaObject.invokeMethod(app, "quit", Qt.ConnectionType.QueuedConnection)
 
 
 def request_clean_shutdown(reason: str = "unknown") -> None:
-    global done, shutdown_requested, _ocr_deadline_scheduler
+    global done, shutdown_requested
 
     if shutdown_requested:
         return
 
     shutdown_requested = True
     done = True
+    ocr_runtime.terminated = True
     emit_ocr_debug(
         get_ocr_advanced_debug_logging(),
         "session.shutdown",
@@ -2362,17 +2381,13 @@ def request_clean_shutdown(reason: str = "unknown") -> None:
     )
     close_ocr_debug_log()
     logger.info(f"OCR clean shutdown requested ({reason})")
-    _get_hotkey_manager().clear()
-
     try:
         _put_latest_second_ocr_task(None)
     except Exception:
         pass
     scheduler = _ocr_deadline_scheduler
-    _ocr_deadline_scheduler = None
     if scheduler is not None:
         scheduler.cancel("ocr.manual.capture")
-        release_runtime_scheduler(scheduler)
 
     try:
         qt_main = _get_qt_main_module()
@@ -2381,13 +2396,41 @@ def request_clean_shutdown(reason: str = "unknown") -> None:
         logger.debug(f"Failed to shutdown Qt app via qt_main helper: {e}")
     finally:
         try:
-            from PyQt6.QtWidgets import QApplication
-
-            app = QApplication.instance()
-            if app:
-                app.quit()
+            _queue_qt_quit_for_ocr()
         except Exception as inner_error:
             logger.debug(f"Fallback Qt shutdown failed: {inner_error}")
+
+
+def cleanup_ocr_runtime() -> None:
+    """Join owned services on the main thread after Qt exits, never on the bus thread."""
+    global _ocr_cleanup_complete, _ocr_deadline_scheduler
+    if _ocr_cleanup_complete:
+        return
+    _ocr_cleanup_complete = True
+    started = perf_counter()
+    request_clean_shutdown("ocr-runtime-exit")
+
+    scheduler = _ocr_deadline_scheduler
+    _ocr_deadline_scheduler = None
+    steps = [
+        ("hotkeys", lambda: _get_hotkey_manager().clear()),
+        ("IPC", ocr_ipc.stop_ipc_listener),
+        ("OBS connection", obs.disconnect_from_obs),
+    ]
+    if scheduler is not None:
+        steps.append(("capture scheduler", lambda: release_runtime_scheduler(scheduler)))
+    # Some capture/config paths access the database. Close it only if loaded;
+    # cleanup must not initialize an otherwise unused database runtime.
+    db_module = sys.modules.get("GameSentenceMiner.util.database.db")
+    if db_module is not None:
+        steps.append(("database", db_module.gsm_db.close))
+    for name, cleanup in steps:
+        try:
+            if cleanup() is False:
+                logger.warning(f"OCR {name} did not finish stopping before its deadline")
+        except Exception:  # noqa: BLE001 - A failed cleanup must not strand the remaining services.
+            logger.exception(f"OCR shutdown failed while stopping {name}")
+    logger.info(f"OCR runtime cleanup completed in {perf_counter() - started:.3f}s")
 
 
 def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
@@ -2508,6 +2551,11 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
             response["success"] = True
             logger.info("IPC: Triggered Area-Select OCR")
 
+        elif command == ocr_ipc.OCRCommand.ADD_OCR_AREA.value:
+            threading.Thread(target=add_ocr_area, daemon=True).start()
+            response["success"] = True
+            logger.info("IPC: Opening Add new area selector")
+
         elif command == ocr_ipc.OCRCommand.TOGGLE_FORCE_STABLE.value:
             is_stable = get_controller().toggle_force_stable()
             response["success"] = True
@@ -2602,11 +2650,13 @@ def _normalize_hotkey_for_keyboard(value: Any, default: str = "") -> str:
 
 def refresh_runtime_hotkey_settings_from_config() -> None:
     global area_select_ocr_hotkey, manual_ocr_hotkey, menu_ocr_hotkey, whole_window_ocr_hotkey, global_pause_hotkey
+    global add_area_ocr_hotkey
 
     current_manual_hotkey = get_ocr_manual_ocr_hotkey()
     manual_ocr_hotkey = _normalize_hotkey_for_keyboard(current_manual_hotkey, "ctrl+shift+m")
     menu_ocr_hotkey = _normalize_hotkey_for_keyboard(get_ocr_menu_ocr_hotkey(), "ctrl+shift+g")
     area_select_ocr_hotkey = _normalize_hotkey_for_keyboard(get_ocr_area_select_ocr_hotkey(), "ctrl+shift+o")
+    add_area_ocr_hotkey = _normalize_hotkey_for_keyboard(get_ocr_add_area_ocr_hotkey(), "alt+shift+n")
     whole_window_ocr_hotkey = _normalize_hotkey_for_keyboard(get_ocr_whole_window_ocr_hotkey(), "ctrl+shift+w")
     global_pause_hotkey = _normalize_hotkey_for_keyboard(get_ocr_global_pause_hotkey(), "ctrl+shift+p")
 
@@ -3379,6 +3429,8 @@ def _save_ocr2_optimization_debug_images(pre_crop_image, cropped_image) -> dict[
 
 
 async def send_result(text, time, response_dict=None, source=TextSource.OCR):
+    if shutdown_requested:
+        return
     if text:
         # Skip expensive overlay coordinate math when no overlay client is
         # connected. The overlay is Windows-only and most users don't enable it.
@@ -3685,7 +3737,7 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
         if section_changed:
             reload_electron_config()
             if get_ocr_advanced_debug_logging():
-                debug_path, created = start_ocr_debug_log(get_temporary_directory(), max_files=3)
+                debug_path, created = start_ocr_debug_log()
                 if created:
                     logger.info("Advanced OCR debug log: {}", debug_path)
             else:
@@ -3704,6 +3756,8 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
                 "menuOcrGamepad",
                 "areaSelectOcrHotkey",
                 "areaSelectOcrGamepad",
+                "addAreaOcrHotkey",
+                "addAreaOcrGamepad",
                 "wholeWindowOcrHotkey",
                 "wholeWindowOcrGamepad",
                 "globalPauseHotkey",
@@ -4008,9 +4062,8 @@ def process_task_queue():
 
 def _setup_ocr_process_logging(runtime_logger):
     try:
-        start_ocr_process_log(runtime_logger, get_temporary_directory(), max_files=3)
         if get_ocr_advanced_debug_logging():
-            debug_path, created = start_ocr_debug_log(get_temporary_directory(), max_files=3)
+            debug_path, created = start_ocr_debug_log()
             if created:
                 runtime_logger.info("Advanced OCR debug log: {}", debug_path)
     except Exception:
@@ -4062,8 +4115,9 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
             combo_pause=global_pause_hotkey,
             disable_user_input=True,  # Disable stdin user input to avoid conflicts with IPC
             logger_level="INFO",
-            # owocr replaces GSM's stdout handlers first; add the diagnostic
-            # file afterward so routine subprocess logs stay out of GSM output.
+            # Keep GSM's persistent sink, including all early startup diagnostics.
+            # The runtime must not replace the process-global Loguru handlers.
+            configure_logger=False,
             logger_setup_callback=_setup_ocr_process_logging,
             # Manual mode explicitly requests OCR2 for both slots. Avoid loading
             # the configured stability engine until a menu OCR path needs it.
@@ -4072,15 +4126,10 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
     except Exception as e:
         logger.exception(f"Error running OneOCR: {e}")
     done = True
-    # Quit Qt app if running
     try:
-        from PyQt6.QtWidgets import QApplication
-
-        app = QApplication.instance()
-        if app:
-            app.quit()
+        _queue_qt_quit_for_ocr()
     except Exception:
-        pass
+        logger.exception("Failed to queue Qt shutdown after the OCR engine exited")
 
 
 def _capture_monitor_image() -> tuple[Image.Image | None, dict[str, Any] | None]:
@@ -4210,6 +4259,23 @@ def run_area_select_ocr_once(source=TextSource.SCREEN_CROPPER) -> bool:
         )
     )
     return True
+
+
+def add_ocr_area() -> bool:
+    """Append one OCR area and hot-reload it without interrupting capture."""
+    if not _add_ocr_area_lock.acquire(blocking=False):
+        return False
+    try:
+        from GameSentenceMiner.ui.qt_main import launch_area_selector
+
+        result = launch_area_selector("", use_obs_screenshot=True, single_area_mode=True)
+        if not result:
+            return False
+        apply_ipc_config_reload({"reload_area": True, "reload_electron": False, "force": True})
+        ocr_ipc.announce_config_reloaded()
+        return True
+    finally:
+        _add_ocr_area_lock.release()
 
 
 def _run_configured_rectangles_ocr_once(*, is_secondary: bool) -> bool:
@@ -4359,6 +4425,13 @@ def add_ss_hotkey():
         logger.info("Area-select OCR hotkey is disabled.")
     hotkey_manager.register_gamepad(get_ocr_area_select_ocr_gamepad, capture_screen_crop)
 
+    # Keep the binding getter registered even when disabled so live settings
+    # refreshes can enable it without restarting OCR.
+    hotkey_manager.register(lambda: add_area_ocr_hotkey, add_ocr_area)
+    hotkey_manager.register_gamepad(get_ocr_add_area_ocr_gamepad, add_ocr_area)
+    if add_area_ocr_hotkey:
+        logger.info(f"Press {add_area_ocr_hotkey} to add a new OCR area.")
+
     if manual_ocr_hotkey:
         hotkey_manager.register(lambda: manual_ocr_hotkey, capture_primary_rectangles)
         logger.info(f"Press {manual_ocr_hotkey} to run OCR for Primary Rectangles.")
@@ -4460,6 +4533,12 @@ if __name__ == "__main__":
             help="Hotkey for area selection OCR (default: ctrl+shift+o)",
         )
         parser.add_argument(
+            "--add_area_ocr_hotkey",
+            type=str,
+            default="alt+shift+n",
+            help="Hotkey to add a saved OCR area (default: alt+shift+n)",
+        )
+        parser.add_argument(
             "--whole_window_ocr_hotkey",
             type=str,
             default="ctrl+shift+w",
@@ -4499,6 +4578,7 @@ if __name__ == "__main__":
         window_name = args.window
         furigana_filter_sensitivity = args.furigana_filter_sensitivity
         area_select_ocr_hotkey = _normalize_hotkey_for_keyboard(args.area_select_ocr_hotkey, "ctrl+shift+o")
+        add_area_ocr_hotkey = _normalize_hotkey_for_keyboard(args.add_area_ocr_hotkey, "alt+shift+n")
         manual_ocr_hotkey = _normalize_hotkey_for_keyboard(args.manual_ocr_hotkey, "ctrl+shift+m")
         menu_ocr_hotkey = _normalize_hotkey_for_keyboard(args.menu_ocr_hotkey, "ctrl+shift+g")
         whole_window_ocr_hotkey = _normalize_hotkey_for_keyboard(args.whole_window_ocr_hotkey, "ctrl+shift+w")
@@ -4582,3 +4662,6 @@ if __name__ == "__main__":
         logger.debug(e, exc_info=True)
         logger.info("Closing in 5 seconds...")
         time.sleep(5)
+    finally:
+        # Also clean up when startup fails before reaching the Qt event loop.
+        cleanup_ocr_runtime()

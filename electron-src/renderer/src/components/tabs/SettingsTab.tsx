@@ -48,11 +48,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   iconStyle: "gsm",
   startConsoleMinimized: false,
   customPythonPackage: "GameSentenceMiner",
-  showYuzuTab: false,
   windowTransparencyToolHotkey: "Ctrl+Alt+Y",
   windowTransparencyTarget: "",
   runWindowTransparencyToolOnStartup: false,
   runOverlayOnStartup: false,
+  runOverlayWithActiveGame: false,
   quitOnWindowClose: false,
   textCaptureWizardEnabled: true,
   visibleTabs: ["launcher", "stats", "python", "console"],
@@ -1280,18 +1280,6 @@ export function SettingsTab({ active }: SettingsTabProps) {
                 />
               </div>
 
-              <div className="input-group">
-                <label htmlFor="show-yuzu-tab">{t("settings.desktop.showYuzuLauncher")}</label>
-                <input
-                  id="show-yuzu-tab"
-                  type="checkbox"
-                  checked={settings.showYuzuTab}
-                  onChange={(event) =>
-                    patchSettings({ showYuzuTab: event.target.checked })
-                  }
-                />
-              </div>
-
               {isWindows ? (
                 <div className="input-group">
                   <label htmlFor="run-transparency-startup">
@@ -1318,7 +1306,10 @@ export function SettingsTab({ active }: SettingsTabProps) {
                     type="checkbox"
                     checked={settings.runOverlayOnStartup}
                     onChange={(event) =>
-                      patchSettings({ runOverlayOnStartup: event.target.checked })
+                      patchSettings({
+                        runOverlayOnStartup: event.target.checked,
+                        ...(event.target.checked ? { runOverlayWithActiveGame: false } : {})
+                      })
                     }
                   />
                 </div>
@@ -1475,7 +1466,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
               </div>
 
               <div className="input-group">
-                <label htmlFor="pull-pre-releases" title={t("settings.updates.betaTooltip")}>
+                <label htmlFor="pull-pre-releases" data-tip={t("settings.updates.betaTooltip")}>
                   {t("settings.updates.betaUpdates")}
                 </label>
                 <input

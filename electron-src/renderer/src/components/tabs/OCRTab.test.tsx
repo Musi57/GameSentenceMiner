@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { I18nProvider } from "../../i18n";
 import { OCRTab } from "./OCRTab";
 
 const invokeMock = vi.fn();
@@ -44,7 +45,7 @@ async function flushAsyncWork() {
   await Promise.resolve();
 }
 
-describe("OCRTab hotkeys", () => {
+describe("OCRTab", () => {
   let container: HTMLDivElement;
   let root: Root;
 
@@ -104,13 +105,165 @@ describe("OCRTab hotkeys", () => {
     ).IS_REACT_ACT_ENVIRONMENT = false;
   });
 
+  it("loads and saves each autostart mode while preserving the latest game automation settings", async () => {
+    const scene = { id: "scene-1", name: "Example Game" };
+    let profile = {
+      sceneId: scene.id,
+      sceneName: scene.name,
+      textHookMode: "agent",
+      ocrMode: "manual",
+      launchOverlay: true,
+      agentScriptPath: "game.js",
+      launchDelaySeconds: 3
+    };
+    invokeMock.mockImplementation(async (channel: string, payload: any) => {
+      if (channel === "obs.getScenes") return [scene];
+      if (channel === "obs.getActiveScene") return scene;
+      if (channel === "settings.getSceneLaunchProfile") return profile;
+      if (channel === "settings.saveSceneLaunchProfile") {
+        profile = { ...profile, ...payload };
+        return { success: true };
+      }
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active /></I18nProvider>);
+      await flushAsyncWork();
+    });
+
+    const autostart = container.querySelector<HTMLSelectElement>("#ocr-autostart-mode");
+    expect(autostart).toBeInstanceOf(HTMLSelectElement);
+    expect(autostart!.value).toBe("manual");
+    expect(autostart!.disabled).toBe(false);
+
+    profile = { ...profile, agentScriptPath: "updated-game.js", launchDelaySeconds: 5 };
+    for (const mode of ["auto", "manual", "none"]) {
+      await act(async () => {
+        autostart!.value = mode;
+        autostart!.dispatchEvent(new Event("change", { bubbles: true }));
+        await flushAsyncWork();
+      });
+
+      expect(invokeMock).toHaveBeenCalledWith("settings.saveSceneLaunchProfile", {
+        scene,
+        textHookMode: "agent",
+        ocrMode: mode,
+        launchOverlay: true,
+        agentScriptPath: "updated-game.js",
+        launchDelaySeconds: 5
+      });
+      expect(autostart!.value).toBe(mode);
+    }
+  });
+
+  it("refreshes autostart for the selected game and creates a profile when needed", async () => {
+    const scenes = [
+      { id: "scene-1", name: "First Game" },
+      { id: "scene-2", name: "Second Game" }
+    ];
+    let activeScene = scenes[0];
+    let secondMode = "none";
+    invokeMock.mockImplementation(async (channel: string, payload: any) => {
+      if (channel === "obs.getScenes") return scenes;
+      if (channel === "obs.getActiveScene") return activeScene;
+      if (channel === "obs.switchScene.id") {
+        activeScene = scenes.find((scene) => scene.id === payload)!;
+      }
+      if (channel === "settings.getSceneLaunchProfile") {
+        if (payload.id === scenes[0].id) return { ocrMode: "auto" };
+        return secondMode === "none" ? null : { ocrMode: secondMode };
+      }
+      if (channel === "settings.saveSceneLaunchProfile") {
+        secondMode = payload.ocrMode;
+        return { success: true };
+      }
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active /></I18nProvider>);
+      await flushAsyncWork();
+    });
+    const autostart = container.querySelector<HTMLSelectElement>("#ocr-autostart-mode");
+    expect(autostart?.value).toBe("auto");
+
+    await act(async () => {
+      const sceneSelect = container.querySelector<HTMLSelectElement>("#ocr-scene-select")!;
+      sceneSelect.value = scenes[1].id;
+      sceneSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      await flushAsyncWork();
+    });
+    expect(autostart!.value).toBe("none");
+
+    await act(async () => {
+      autostart!.value = "manual";
+      autostart!.dispatchEvent(new Event("change", { bubbles: true }));
+      await flushAsyncWork();
+    });
+    expect(invokeMock).toHaveBeenCalledWith("settings.saveSceneLaunchProfile", {
+      scene: scenes[1],
+      textHookMode: "none",
+      ocrMode: "manual",
+      launchOverlay: false,
+      agentScriptPath: "",
+      launchDelaySeconds: 0
+    });
+
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active={false} /></I18nProvider>);
+      await flushAsyncWork();
+    });
+    secondMode = "auto";
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active /></I18nProvider>);
+      await flushAsyncWork();
+    });
+    expect(autostart!.value).toBe("auto");
+  });
+
+  it("disables autostart without a game and keeps the saved mode after a failed save", async () => {
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active /></I18nProvider>);
+      await flushAsyncWork();
+    });
+    const autostart = container.querySelector<HTMLSelectElement>("#ocr-autostart-mode");
+    expect(autostart?.disabled).toBe(true);
+
+    const scene = { id: "scene-1", name: "Example Game" };
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "obs.getScenes") return [scene];
+      if (channel === "obs.getActiveScene") return scene;
+      if (channel === "settings.getSceneLaunchProfile") return { ocrMode: "manual" };
+      if (channel === "settings.saveSceneLaunchProfile") return { success: false };
+      return null;
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+      await flushAsyncWork();
+    });
+    expect(autostart!.value).toBe("manual");
+
+    await act(async () => {
+      autostart!.value = "auto";
+      autostart!.dispatchEvent(new Event("change", { bubbles: true }));
+      await flushAsyncWork();
+    });
+    expect(autostart!.value).toBe("manual");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "Failed to save OCR autostart settings."
+    );
+  });
+
   it("loads legacy gamepad bindings as enabled and suppresses them without erasing mappings", async () => {
     await act(async () => {
       root.render(<OCRTab active={false} />);
       await flushAsyncWork();
     });
 
-    expect(container.querySelectorAll(".ocr-gamepad-hotkey")).toHaveLength(5);
+    expect(container.querySelectorAll(".ocr-gamepad-hotkey")).toHaveLength(6);
     expect((container.querySelector("#manual-hotkey") as HTMLInputElement).value).toBe(
       "Ctrl+Shift+M"
     );
@@ -158,7 +311,7 @@ describe("OCRTab hotkeys", () => {
     expect(columns?.textContent).toContain("Action");
     expect(columns?.textContent).toContain("Keyboard");
     expect(columns?.textContent).toContain("Gamepad");
-    expect(container.querySelectorAll(".ocr-hotkey-item")).toHaveLength(5);
+    expect(container.querySelectorAll(".ocr-hotkey-item")).toHaveLength(6);
     expect(
       container.querySelector(".ocr-hotkey-item > .ocr-hotkey-run")
     ).toBeInstanceOf(HTMLButtonElement);
@@ -195,7 +348,55 @@ describe("OCRTab hotkeys", () => {
     });
 
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
-    expect(container.querySelectorAll(".ocr-gamepad-hotkey")).toHaveLength(5);
+    expect(container.querySelectorAll(".ocr-gamepad-hotkey")).toHaveLength(6);
+  });
+
+  it("runs Add new area and saves or clears its keyboard binding", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "ocr.get-running-state") return { isRunning: true, isManual: false };
+      return null;
+    });
+    await act(async () => {
+      root.render(<OCRTab active />);
+      await flushAsyncWork();
+    });
+
+    const binding = container.querySelector<HTMLInputElement>("#add-area-hotkey")!;
+    const row = binding.closest(".ocr-hotkey-item")!;
+    expect(binding.value).toBe("Alt+Shift+N");
+    expect(row.textContent).toContain("Add new area");
+    await act(async () => {
+      row.querySelector<HTMLButtonElement>(".ocr-hotkey-run")!.click();
+    });
+    expect(sendMock).toHaveBeenCalledWith("ocr.add-area");
+
+    for (const [key, altKey, expected] of [["n", true, "Alt+N"], ["Escape", false, ""]] as const) {
+      await act(async () => {
+        binding.dispatchEvent(new KeyboardEvent("keydown", { key, altKey, bubbles: true }));
+        await flushAsyncWork();
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+        await flushAsyncWork();
+      });
+      expect(sendMock).toHaveBeenCalledWith("ocr.save-ocr-config", expect.objectContaining({
+        addAreaOcrHotkey: expected,
+        addAreaOcrGamepad: ""
+      }));
+    }
+  });
+
+  it("loads a saved Add new area binding and gamepad mapping", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "ocr.get-ocr-config") return { addAreaOcrHotkey: "", addAreaOcrGamepad: "4" };
+      return null;
+    });
+    await act(async () => {
+      root.render(<OCRTab active={false} />);
+      await flushAsyncWork();
+    });
+    expect(container.querySelector<HTMLInputElement>("#add-area-hotkey")!.value).toBe("");
+    expect(container.querySelector<HTMLSelectElement>("#add-area-gamepad-hotkey")!.value).toBe("4");
   });
 
   it("loads and saves the manual green-area delay options", async () => {

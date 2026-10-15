@@ -219,6 +219,43 @@ def test_preview_prefers_english_game_title_when_available():
     ]
 
 
+@pytest.mark.parametrize(
+    ("title_source", "expected_title"),
+    [("english", "English Title"), ("original", "原題"), ("romaji", "Gendai")],
+)
+def test_preview_uses_selected_game_title(title_source, expected_title):
+    GamesTable(id="game-titles", title_original=" 原題 ", title_english="English Title", title_romaji="Gendai").save()
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("title-line", "game-titles", "Scene A", "abc", 110.0)
+
+    preview = build_tadoku_preview(title_source=title_source, upper_bound=150.0)
+
+    assert preview["entries"][0]["game_name"] == expected_title
+    assert preview["total_characters"] == 3
+
+
+@pytest.mark.parametrize(
+    ("title_source", "titles", "expected_title"),
+    [
+        ("english", {"title_original": "原題"}, "原題"),
+        ("original", {"title_original": " ", "title_english": "English Title"}, "English Title"),
+        ("romaji", {"title_original": "原題"}, "原題"),
+        ("english", {"title_romaji": "Gendai"}, "Gendai"),
+        ("original", {"title_original": " ", "title_english": " "}, "Scene A"),
+    ],
+)
+def test_preview_title_source_falls_back_when_title_is_missing(title_source, titles, expected_title):
+    GamesTable(id="game-titles", **titles).save()
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("title-line", "game-titles", "Scene A", "abc", 110.0)
+    _line("scene-line", "missing-game", "Scene B", "def", 120.0)
+
+    preview = build_tadoku_preview(title_source=title_source, upper_bound=150.0)
+
+    assert [entry["game_name"] for entry in preview["entries"]] == [expected_title, "Scene B"]
+    assert preview["total_characters"] == 6
+
+
 class _FakeClient:
     def __init__(self, fail_on_post=0):
         self.fail_on_post = fail_on_post
@@ -242,6 +279,33 @@ class _FakeClient:
 
     def delete_log(self, log_id):
         self.deleted.append(log_id)
+
+
+@pytest.mark.parametrize("scheduled", [False, True])
+@pytest.mark.parametrize(
+    ("title_source", "expected_title"),
+    [("english", "English Title"), ("original", "原" * 255), ("romaji", "Gendai")],
+)
+def test_sync_uses_saved_title_source(monkeypatch, scheduled, title_source, expected_title):
+    from GameSentenceMiner.util.cron.tadoku_sync import run_scheduled_tadoku_sync
+
+    GamesTable(id="game-titles", title_original="原" * 300, title_english="English Title", title_romaji="Gendai").save()
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("title-line", "game-titles", "Scene A", "あ" * TADOKU_AUTO_SYNC_MINIMUM_CHARACTERS, 110.0)
+    config = _config(tadoku_title_source=title_source)
+    client = _FakeClient()
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: 150.0)
+    monkeypatch.setattr("GameSentenceMiner.util.cron.tadoku_sync.get_stats_config", lambda: config)
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.cron.tadoku_sync.run_tadoku_sync",
+        lambda **kwargs: run_tadoku_sync(client=client, **kwargs),
+    )
+
+    result = run_scheduled_tadoku_sync() if scheduled else run_tadoku_sync(config=config, client=client)
+
+    assert result["success"] is True
+    assert client.payloads[0]["description"] == expected_title
+    assert client.payloads[0]["amount"] == TADOKU_AUTO_SYNC_MINIMUM_CHARACTERS
 
 
 def test_sync_posts_one_character_log_per_game_and_advances_frozen_cursor(monkeypatch):
@@ -292,6 +356,41 @@ def test_sync_rolls_back_remote_logs_and_keeps_cursor_when_a_post_fails(monkeypa
 
     assert client.deleted == ["log-1"]
     assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 100.0
+
+
+def test_manual_sync_uses_edited_log_descriptions_only_for_that_sync(monkeypatch):
+    title = "Zero Escape: Virtue's Last Reward"
+    edited_title = f"{title} 終わり"
+    GamesTable(id="game-1", title_english=title).save()
+    GamesTable(id="game-2", title_english=title).save()
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("one", "game-1", "Scene A", "あいう", 110.0)
+    _line("two", "game-2", "Scene B", "えお", 120.0)
+    _line("unlinked", "", "Unlinked Game", "abc", 130.0)
+    client = _FakeClient()
+    now = [150.0]
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: now[0])
+
+    result = run_tadoku_sync(
+        config=_config(),
+        client=client,
+        log_descriptions={"game-1": edited_title, "scene:Unlinked Game": "Unlinked Game 終わり"},
+    )
+
+    assert result["characters_sent"] == 8
+    assert [payload["description"] for payload in client.payloads] == [
+        edited_title,
+        title,
+        "Unlinked Game 終わり",
+    ]
+    assert GamesTable.get("game-1").title_english == title
+    assert GameLinesTable.get("one").game_name == "Scene A"
+    assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 150.0
+
+    _line("next", "game-1", "Scene A", "かきく", 160.0)
+    now[0] = 200.0
+    run_tadoku_sync(config=_config(), client=client)
+    assert client.payloads[-1]["description"] == title
 
 
 def test_sync_minimum_uses_total_game_characters_not_queued_characters(monkeypatch):
@@ -751,6 +850,80 @@ def test_tadoku_api_previews_and_queues_inline_sync(monkeypatch):
     job = queued.get_json()
     assert job["status"] == "completed"
     assert job["result"]["characters_sent"] == 3
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_title"),
+    [("", "原題"), ("?title_source=romaji", "Gendai"), ("?title_source=english", "English Title")],
+)
+def test_tadoku_preview_api_uses_saved_or_requested_title_source(monkeypatch, query, expected_title):
+    app = flask.Flask(__name__)
+    register_tadoku_api_routes(app)
+    GamesTable(id="game-titles", title_original="原題", title_english="English Title", title_romaji="Gendai").save()
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("title-line", "game-titles", "Scene A", "abc", 110.0)
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: 150.0)
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.tadoku_api.get_stats_config", lambda: _config(tadoku_title_source="original")
+    )
+
+    response = app.test_client().get(f"/api/tadoku/preview{query}")
+
+    assert response.status_code == 200
+    assert response.get_json()["entries"][0]["game_name"] == expected_title
+
+
+def test_tadoku_preview_api_rejects_invalid_title_source(monkeypatch):
+    app = flask.Flask(__name__)
+    register_tadoku_api_routes(app)
+    monkeypatch.setattr("GameSentenceMiner.web.tadoku_api.get_stats_config", lambda: _config())
+
+    response = app.test_client().get("/api/tadoku/preview?title_source=invalid")
+
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize("run_inline", [True, False])
+def test_tadoku_api_passes_edited_log_descriptions_to_sync(monkeypatch, run_inline):
+    from GameSentenceMiner.web.tadoku_api import TadokuSyncJobManager
+
+    app = flask.Flask(__name__)
+    app.config["TESTING"] = run_inline
+    register_tadoku_api_routes(app)
+    monkeypatch.setattr("GameSentenceMiner.web.tadoku_api.tadoku_sync_job_manager", TadokuSyncJobManager())
+    calls = []
+    completed = threading.Event()
+
+    def sync(**kwargs):
+        calls.append(kwargs)
+        completed.set()
+        return {"success": True, "entries_sent": 1, "characters_sent": 3}
+
+    monkeypatch.setattr("GameSentenceMiner.web.tadoku_api.run_tadoku_sync", sync)
+    descriptions = {"game-1": "Zero Escape: Virtue's Last Reward 終わり"}
+    response = app.test_client().post("/api/tadoku/sync", json={"deduplicate": True, "log_descriptions": descriptions})
+
+    assert response.status_code == 202
+    assert completed.wait(timeout=2)
+    assert calls == [{"deduplicate": True, "log_descriptions": descriptions}]
+
+
+@pytest.mark.parametrize(
+    "descriptions",
+    [[], "title", {"": "title"}, {"game-1": None}, {"game-1": 123}, {"game-1": "  "}, {"game-1": "あ" * 256}],
+)
+def test_tadoku_api_rejects_invalid_log_descriptions_before_queueing(monkeypatch, descriptions):
+    app = flask.Flask(__name__)
+    app.config["TESTING"] = True
+    register_tadoku_api_routes(app)
+    calls = []
+    monkeypatch.setattr("GameSentenceMiner.web.tadoku_api.run_tadoku_sync", lambda **kwargs: calls.append(kwargs))
+
+    response = app.test_client().post("/api/tadoku/sync", json={"log_descriptions": descriptions})
+
+    assert response.status_code == 400
+    assert "log" in response.get_json()["error"].lower()
+    assert calls == []
 
 
 def test_tadoku_api_manually_refreshes_and_persists_authentication(monkeypatch):

@@ -57,8 +57,11 @@
       "preview": "プレビュー",
       "captureCardPrefix": "キャプチャカード: {title}",
       "setupNewScene": "新しいゲームキャプチャを設定:",
-      "refreshWindows": "ウィンドウを更新",
-      "selectWindow": "ウィンドウを選択",
+      "refreshWindows": "キャプチャ対象を更新",
+      "selectWindow": "キャプチャ対象を選択",
+      "captureTargetLabel": "キャプチャ対象:",
+      "sectionMonitors": "モニターキャプチャ",
+      "monitorCaptureTooltip": "選択したモニター全体と、既定の出力デバイスのデスクトップ音声をキャプチャします。このシーン専用の音声ソースを追加します。グローバルのデスクトップ音声設定と自動シーン切り替えは変更されません。",
       "setupCapture": "キャプチャを設定",
       "setupCaptureTooltip": "キャプチャ設定は、選択したWindow CaptureまたはGame Captureをウィンドウに追加し、キャプチャカードやカメラにはVideo Capture Deviceを追加します。\nフルスクリーンゲームにはGame Captureを使い、Game Captureが黒画面になる場合はWindow Captureを使ってください。\nLinux X11/Steam DeckではXComposite Window Captureを使用します。WaylandではOBSのScreen Capture (PipeWire)を使用し、システムの画面/ウィンドウ選択画面を開きます。\nキャプチャカードのゲームキャプチャはウィンドウタイトルによる自動切替なしで作成されます。",
       "waylandPipewireOption": "Wayland画面キャプチャ（PipeWire）",
@@ -88,7 +91,11 @@
       "statusStopped": "停止中",
       "guide": "設定ガイド",
       "runOnStartup": "起動時に実行",
-      "runOnStartupTooltip": "GSM起動時にGSMオーバーレイを自動的に起動します。"
+      "runOnStartupTooltip": "GSM起動時にオーバーレイを起動し、そのまま実行し続けます。ゲームに合わせて自動起動・終了するには「ゲームに合わせて開く・閉じる」を使用してください。一方を有効にすると、もう一方は無効になります。",
+      "runWithActiveGame": "ゲームに合わせて開く・閉じる",
+      "runWithActiveGameTooltip": "すべてのゲームで、キャプチャまたはゲームウィンドウを検出するとオーバーレイを開き、セッション終了時に閉じます。一時的な検出の途切れ、Alt+Tab、最小化では閉じません。有効にすると「起動時に実行」は無効になります。",
+      "recommended": "推奨",
+      "settingsError": "オーバーレイ設定を読み込みまたは保存できませんでした。ホームを開き直して再試行してください。"
     },
     "actions": {
       "title": "ユーティリティ",
@@ -148,14 +155,28 @@
       "github": "GitHub",
       "discord": "Discord"
     },
+    "update": {
+      "available": "更新があります",
+      "previewDescription": "最新のオンラインリリースノートを使った開発用プレビューです。インストールは無効になっています。",
+      "availableVersion": "更新があります: {version}",
+      "title": "{version} に更新",
+      "restartDescription": "更新をダウンロードし、GSM を再起動してインストールします。",
+      "install": "更新して再起動",
+      "notNow": "今はしない",
+      "installing": "更新中…",
+      "installingDescription": "更新をダウンロードしています。準備ができると GSM が再起動します。",
+      "installFailed": "更新をインストールできませんでした。再試行するか、「今はしない」を選択してください。",
+      "notesUnavailable": "リリースノートを読み込めませんでした。再試行するか、このまま更新をインストールできます。",
+      "changed": "利用可能な更新が変わりました。この画面を閉じて開き直し、最新のリリースを確認してください。"
+    },
     "stats": {
       "loading": "GSM統計の読み込みを待機中..."
     },
     "console": {
       "openLogsFolder": "ログフォルダを開く",
       "openLogsFolderTooltip": "ログフォルダを開く",
-      "exportLogs": "ログをエクスポート",
-      "exportLogsTooltip": "ログをzipアーカイブにエクスポート",
+      "exportLogs": "匿名化したログをエクスポート",
+      "exportLogsTooltip": "検出されたユーザー名、ホームパス、コンピューター名、メール・IPアドレス、一般的な認証情報を伏せたZIPを出力します。元のログは変更されません。共有前に内容を確認してください。",
       "modeSimple": "モード: シンプル",
       "modeAdvanced": "モード: 詳細",
       "modeSimpleTooltip": "詳細ログに切替（基本＋バックグラウンドログを表示）",
@@ -269,16 +290,16 @@
     }
   },
   "captureWizard": {
-    "title": "テキストキャプチャウィザード (WIP)",
-    "subtitle": "このゲームのテキスト入力、OCRフォールバック、自動化を仕上げます。",
+    "title": "テキストキャプチャウィザード",
+    "subtitle": "4つのステップでテキストの取得方法を確認できます。必要な設定に直接移動することもできます。",
     "breadcrumbLabel": "テキストキャプチャ設定のステップ",
     "steps": {
-      "preview": "プレビュー",
+      "preview": "キャプチャ",
       "agent": "Agent",
-      "hook": "フック",
+      "hook": "テキストフック",
       "ocr": "OCR",
       "profile": "プロファイル",
-      "finish": "確認"
+      "finish": "仕上げ"
     },
     "actions": {
       "deny": "今はしない",
@@ -287,8 +308,8 @@
       "next": "次へ"
     },
     "preview": {
-      "title": "OBSプレビューを確認",
-      "description": "GSMは毎秒プレビューを更新し、各スクリーンショットの前にソースをOBSキャンバスへ合わせます。",
+      "title": "ゲームのキャプチャを確認",
+      "description": "GSMは映像キャプチャをスクリーンショット、クリップ、OCRに使用します。下のプレビューにゲームが映っているか確認してください。画面が黒い場合は、キャプチャの種類を切り替えてみてください。",
       "scene": "シーン",
       "executable": "実行ファイル",
       "captureType": "キャプチャ種類",
@@ -322,16 +343,16 @@
       "useScript": "選択したスクリプトを使う"
     },
     "hook": {
-      "title": "LunaまたはTextractorを試す",
-      "description": "Luna/Textractorのフックは主にビジュアルノベル向けです。一般的なゲームではAgentスクリプトかOCRの方が動作しやすいため、ここではきれいな会話テキストが見えるフックだけを選んでください。",
+      "title": "ゲームからテキストを直接取得",
+      "description": "テキストフックはゲームから直接テキストを取得するため、OCRの認識ミスを避けられます。ビジュアルノベルには、通常LunaやTextractorが最適です。",
       "engine": "エンジン",
       "luna": "Luna Hook",
       "textractor": "Textractor",
       "start": "フックエンジンを開始",
       "running": "使用可能なフック {count} 件",
       "notRunning": "フックエンジンは実行されていません。",
-      "waiting": "テキスト付きフックを待機中です。ゲームの会話を進めてください。",
-      "startFirst": "エンジンを開始してフックをスキャンしてください。",
+      "waiting": "ゲームの会話を進めてテキストを取得してください。一致するテキストが表示されない場合は、Textractorを試すかOCRに進んでください。",
+      "startFirst": "まずLunaを起動し、ゲームの会話を進めて、画面と一致するテキストを選択してください。",
       "noPreview": "テキストプレビューはまだありません",
       "refreshFailed": "フックの更新に失敗しました。",
       "startFailed": "フックエンジンの起動に失敗しました。",
@@ -340,7 +361,7 @@
     },
     "ocr": {
       "title": "OCR範囲を選択",
-      "description": "ゲームの会話を囲む範囲を描画してください。選択画面を閉じると、GSMが一度スキャンして認識したテキストを表示します。",
+      "description": "OCRはゲームの映像から文字を読み取ります。キャプチャカード経由のゲームを含め、多くのゲームで使えます。会話の範囲を選択して、テキストのサンプルを確認してください。",
       "reasonStable": "OCRエリアを指定すると会話ボックスだけにスキャンを絞れます。",
       "reasonNoise": "小さい範囲はメニュー、名前欄、UIノイズを避けやすくします。",
       "reasonFallback": "コンソールゲーム、保護されたエンジン、キャプチャカードでも動作します。",
@@ -367,8 +388,8 @@
       "automationAutoDescription": "ゲームがアクティブな間、選択範囲を継続的にスキャンします。"
     },
     "profile": {
-      "title": "このゲーム設定を保存",
-      "description": "このOBSシーンの自動化を保存し、必要ならGSMプロファイルでより大きなゲーム別設定に分けられます。",
+      "title": "このゲームの設定を仕上げる",
+      "description": "テキストソースを確認し、次回から自動起動するものを選んでください。",
       "source": "テキストソース",
       "sourceAgent": "Agentスクリプト",
       "sourceLuna": "Luna Hook",
@@ -381,7 +402,7 @@
       "ocrNone": "OCRなし",
       "ocrManual": "手動OCR",
       "ocrAuto": "自動OCR",
-      "launchOverlay": "このゲームでオーバーレイを起動",
+      "launchOverlay": "このゲームに合わせてオーバーレイを開く・閉じる",
       "openProfiles": "プロファイルを開く",
       "assignLabel": "このシーンをGSMプロファイルに割り当てる",
       "assignHint": "シーン「{scene}」がアクティブになると、GSMは自動的にこのプロファイルに切り替えます。",
@@ -408,6 +429,38 @@
     },
     "errors": {
       "contextFailed": "アクティブキャプチャの読み込みに失敗しました。"
+    },
+    "guided": {
+      "captureNext": "キャプチャを確認してテキスト選択へ",
+      "hookNext": "OCRへ進む",
+      "finalize": "仕上げへ進む",
+      "saveAndClose": "保存して閉じる",
+      "skipOcr": "OCRをスキップして仕上げる",
+      "ocrOptional": "テキストフックを選択済みです。OCRをスキップするか、フックで取得できないテキスト用に設定できます。",
+      "ocrGuide": "会話の範囲を選択し、サンプルを確認して、OCRを実行するタイミングを選んでください。",
+      "hookGuide": "1. エンジンを起動します。2. ゲームの会話を進めます。3. 画面と一致するテキストを選択します。",
+      "vnTitle": "Luna / Textractor · ビジュアルノベルにおすすめ",
+      "agentTitle": "Agent · ゲーム専用スクリプト",
+      "agentDescription": "Agentは特定のゲーム用に作成されたスクリプトを使用します。必要なスクリプトがわかっている場合は、手動で検索できます。",
+      "agentRecommended": "一致度の高いスクリプト",
+      "agentMatchHint": "このゲームのシーン名、ウィンドウタイトル、実行ファイルをもとに見つかった候補です。使用前にゲームとプラットフォームを確認してください。",
+      "agentNoMatch": "一致度の高いスクリプトは見つかりませんでした。ビジュアルノベルならLuna / Textractorを試すか、OCRに進んでください。",
+      "useAgent": "このスクリプトを使う",
+      "stopHook": "エンジンを停止",
+      "stoppingFailed": "テキストフックの停止に失敗しました。",
+      "selectedSource": "選択中: {source}",
+      "noSource": "テキストソースが未選択です。テキストフックまたはOCRに戻って設定するか、キャプチャ設定のみ保存できます。",
+      "optionalSettings": "その他の設定: オーバーレイとGSMプロファイル",
+      "noScene": "ゲームを起動し、ホームでそのゲームのキャプチャを選択してから更新してください。",
+      "useOcr": "OCRを使って仕上げる",
+      "keepHook": "テキストフックを使って仕上げる",
+      "engineBusy": "起動中…",
+      "hookSelected": "テキストフックを選択しました。補助としてOCRを設定するか、仕上げに進めます。",
+      "ocrNotTested": "サンプルはまだありません。今すぐ範囲を選択するか、既存のOCR設定を使えます。",
+      "agentStart": "スクリプトを起動",
+      "agentRunning": "Agentは実行中です。会話を進めて取得したテキストを確認してください。",
+      "usingSaved": "保存済みの設定を読み込みました。変更したいステップに移動できます。",
+      "otherGameRunning": "{exe} のテキストフックが実行中です。このゲーム用のフックを起動する前に停止してください。"
     }
   },
   "install": {
@@ -499,7 +552,6 @@
       "iconRandomTray": "ランダム（トレイアイコンも）",
       "language": "言語:",
       "startMinimized": "コンソール最小化で起動:",
-      "showYuzuLauncher": "Yuzuランチャーを表示:",
       "runTransparencyOnStartup": "起動時に透過ツールを実行:",
       "runOverlayOnStartup": "起動時にオーバーレイを実行:",
       "quitOnWindowClose": "ウィンドウを閉じたときにGSMを終了:",
@@ -874,7 +926,7 @@
       "ocrNone": "なし",
       "ocrAuto": "自動OCR",
       "ocrManual": "手動OCR",
-      "launchOverlay": "ゲームと一緒にオーバーレイを起動:",
+      "launchOverlay": "ゲームに合わせてオーバーレイを開く・閉じる:",
       "noSceneHint": "自動化を設定するにはOBSゲームを選択または切り替えてください。"
     },
     "scriptPicker": {
@@ -928,7 +980,7 @@
       "textHookLuna": "このゲームがアクティブになるとLunaTranslatorを自動起動します。",
       "launchDelay": "このゲームで選択されたテキストフックランチャーを起動する前の遅延。",
       "agentScript": "このゲームのAgentスクリプトパス。手動設定、参照、検索が可能です。",
-      "launchOverlay": "このゲームのセッションがアクティブな間GSMオーバーレイを起動し、ゲーム/セッション終了時に自動起動されたオーバーレイを閉じます。",
+      "launchOverlay": "このゲームのキャプチャまたはウィンドウを検出するとオーバーレイを開きます。キャプチャやウィンドウの消失が確認された場合、またはこの設定が無効なOBSシーンに切り替えた場合に閉じます。Alt+Tabや最小化では終了しません。ホーム → オーバーレイ → ゲームに合わせて開く・閉じるを有効にすると、すべてのゲームに適用されます。ホームのその設定または「起動時に実行」が有効な間は変更できませんが、ゲームごとの設定は保持されます。",
       "browseScript": "ファイルピッカーを開いてこのゲームのAgentスクリプトを選択します。",
       "searchScript": "Agentスクリプトパス下のすべてのスクリプトを検索し、ゲームとの類似度でランク付けします。",
       "downloadAgent": "公式GitHubリリースから最新のAgentをダウンロードします。インストールフォルダを選択してください。",
@@ -945,6 +997,8 @@
   },
   "ocr": {
     "sceneAndAreas": {
+      "autostart": "OCRの自動起動:",
+      "autostartHint": "このゲームがアクティブなときに自動起動するOCRモードを選択します。この設定はゲーム自動化と共通です。",
       "title": "ゲームとエリア",
       "areaCount": "{count} エリア",
       "areaCountPlural": "{count} エリア",
@@ -1016,6 +1070,7 @@
       "manual": "手動（緑のエリア）",
       "menu": "メニュー（紫のエリア）",
       "areaSelect": "エリア選択",
+      "addArea": "新しいエリアを追加",
       "wholeWindow": "ウィンドウ全体",
       "pause": "一時停止",
       "keyboard": "キーボード",
@@ -1125,6 +1180,7 @@
       "manualDelayGamepadOnly": "緑のエリアの手動スキャン遅延を、ゲームパッドから実行した場合にのみ適用します。",
       "menuHotkey": "設定された紫のメニューエリアでメインOCR（OCR 2）を1回実行します。Escapeでクリアします。",
       "areaSelectHotkey": "押すと一時的なエリアを選択して1回だけOCRします。メニューに便利です。Escapeでクリアします。",
+      "addAreaHotkey": "新しいエリアを1つ描画すると保存され、実行中のOCRに適用されます。既存のエリアは保持されます。自動キャプチャには「Normal」、メニューホットキー用には「Secondary」を選択してください。この入力欄でEscapeを押すと割り当てを解除します。",
       "wholeWindowHotkey": "アクティブなOCRソース全体（通常はOBSのゲームソース）を1回OCRし、エリア矩形をバイパスします。Escapeでクリアします。",
       "pauseHotkey": "OCRスキャン全体を一時停止または再開します。カットシーン中やOCRを一時的に止めたいときに便利です。Escapeでクリアします。",
       "processPriority": "WindowsでOCR Pythonプロセスの優先度を設定します。高い値はOCRの応答性を改善する場合がありますが、システムの応答性を下げることがあります。",
@@ -1149,6 +1205,8 @@
       "comparison": "テキストが新規、安定、または前の行の一部かを判定する重複除去と変更検出のしきい値です。"
     },
     "runtime": {
+      "failedLoadAutostart": "OCRの自動起動設定を読み込めませんでした。",
+      "failedSaveAutostart": "OCRの自動起動設定を保存できませんでした。",
       "idle": "アイドル",
       "startingAuto": "自動OCRを起動中...",
       "startingManual": "手動OCRを起動中...",
@@ -1343,6 +1401,38 @@
     "previewFailed": "プレビューを生成できませんでした"
   },
   "texthook": {
+    "updates": {
+      "title": "LunaHook と Textractor",
+      "description": "新しいビルドをバックグラウンドでダウンロードし、テキストフックの停止中に適用します。両方のエンジンをまとめて更新します。",
+      "settings": "エンジン設定",
+      "automatic": "自動更新する",
+      "automaticOn": "自動更新オン",
+      "automaticOff": "自動更新オフ",
+      "verificationHint": "すべてのファイルを検証してからパッケージを切り替えます。以前のパッケージは保持されます。",
+      "repair": "修復／再インストール",
+      "updateNow": "今すぐ更新",
+      "install": "エンジンをインストール",
+      "verifying": "ダウンロードしたファイルを検証中…",
+      "installing": "検証済みの更新をインストール中…",
+      "waiting": "更新を検証済みです。実行中のフックが停止したら適用します。",
+      "failed": "エンジンの更新に失敗しました。再確認または再インストールで再試行してください。",
+      "preferenceFailed": "自動更新の設定を保存できませんでした。",
+      "installed": "インストール済みパッケージ: {version}",
+      "available": "配布中のパッケージ: {version}",
+      "unknownVersion": "バージョン不明",
+      "notInstalled": "エンジンがインストールされていないか、修復が必要です。",
+      "check": "今すぐ確認",
+      "checking": "エンジンの更新を確認中…",
+      "checkFailed": "エンジンの更新を確認できませんでした。もう一度お試しください。",
+      "updateAvailable": "エンジンの更新があります。",
+      "upToDate": "エンジンパッケージは最新です。",
+      "download": "エンジンをダウンロード／更新",
+      "downloading": "エンジンをダウンロード中…",
+      "downloadFailed": "フックエンジンをダウンロードできませんでした。もう一度お試しください。",
+      "ready": "フックエンジンの準備ができました。",
+      "stopFirst": "エンジンをダウンロードする前に、実行中のテキストフックを停止してください。",
+      "progress": "フックエンジンをダウンロード中 ({current}/{total}): {file}"
+    },
     "notice": {
       "title": "テキストフックについて",
       "description": "テキストフックは実行中のゲームからテキストを直接取得します。対応しているゲームでは、OCR よりもクリーンで正確なテキストを取得できます。",
@@ -1396,8 +1486,8 @@
       "title": "Agentスクリプト",
       "scriptPath": "スクリプトパス:",
       "scriptPlaceholder": ".js Agentスクリプトを選択",
-      "search": "検索",
-      "browse": "参照",
+      "search": "スクリプトを検索",
+      "browse": "ファイルを選択…",
       "save": "保存",
       "noScripts": "Agentスクリプトが見つかりません。",
       "pickerTitle": "Agentスクリプトを選択",
@@ -1410,8 +1500,10 @@
       "runDetachedHint": "次回GSMを開いたとき、実行中のAgentセッションに再接続します。"
     },
     "profile": {
-      "title": "保存済みプロファイル",
+      "title": "次回のために保存",
       "saved": "保存済み",
+      "recommended": "おすすめ",
+      "saveHint": "動作するフックを保存すると、次回も使えます。",
       "autoHook": "次回起動時にフックを自動アタッチ",
       "copyToClipboard": "処理済みテキストをクリップボードにコピー",
       "flushDelay": "テキスト更新ウィンドウ (ms):",
@@ -1433,11 +1525,26 @@
       "rowLabel": "フック #{id} を選択: {name}",
       "searchTitle": "フック検索",
       "waiting": "フック待機中。ゲームでテキストを表示してください。",
-      "notRunning": "「開始」を押してエンジンを開始してください。",
-      "noTextYet": "(まだテキストなし)"
+      "notRunning": "テキスト取得を開始してフックを探してください。",
+      "noTextYet": "(まだテキストなし)",
+      "rankingHint": "学習言語（{language}）に合う読みやすいテキストを優先して表示します。言語の判定は文字種による目安です。選択中のフックは常に表示されます。",
+      "readabilityHint": "読みやすいテキストを優先して表示します。選択中のフックは常に表示されます。",
+      "showNoise": "ノイズ候補を表示（{count} 件）",
+      "onlyNoise": "現在はノイズ候補のみです。ノイズ候補を表示して確認するか、ゲームのテキストを進めてください。",
+      "quality": {
+        "targetLanguage": "学習言語に近い文字種",
+        "possibleLanguage": "学習言語の可能性あり",
+        "readable": "読みやすいテキスト",
+        "mixed": "テキストとノイズが混在",
+        "paths": "パスや技術的な文字列",
+        "garbled": "文字化けの可能性",
+        "repetitive": "繰り返しが多いテキスト",
+        "symbols": "主に数字や記号"
+      }
     },
     "output": {
       "title": "選択中フックの出力",
+      "checkHint": "ゲーム内のテキストと一致しているか確認してください。",
       "waiting": "選択中フックからのテキストを待機中…",
       "selectHook": "プレビューするフックを一覧から選択してください。"
     },
@@ -1450,10 +1557,15 @@
       "ready": "準備完了",
       "noTarget": "対象なし"
     },
+    "layout": {
+      "captureOptions": "テキスト取得の詳細設定",
+      "troubleshooting": "トラブルシューティング"
+    },
     "actions": {
       "start": "開始",
       "searchHooks": "フックを検索",
-      "stop": "停止"
+      "stop": "停止",
+      "preparing": "テキスト取得を準備しています…"
     },
     "dev": {
       "sendLargePayload": "ランダムな日本語ペイロードを送信 ({size} 文字)",

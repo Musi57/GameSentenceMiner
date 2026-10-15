@@ -63,8 +63,11 @@
       "preview": "Preview",
       "captureCardPrefix": "Capture Card: {title}",
       "setupNewScene": "Setup New Game Capture:",
-      "refreshWindows": "Refresh windows",
-      "selectWindow": "Select Window",
+      "refreshWindows": "Refresh capture targets",
+      "selectWindow": "Select Capture Target",
+      "captureTargetLabel": "Capture Target:",
+      "sectionMonitors": "Monitor Capture",
+      "monitorCaptureTooltip": "Capture everything on the selected monitor with desktop audio from the default output device. Adds a separate audio source to this scene. Global desktop audio settings and automatic scene switching are unchanged.",
       "setupCapture": "Setup Capture",
       "setupCaptureTooltip": "Setup Capture adds the selected Window Capture or Game Capture source for windows, or Video Capture Device for capture cards and cameras.\nUse Game Capture for fullscreen games; use Window Capture when Game Capture shows black.\nOn Linux X11/Steam Deck, Setup Capture uses XComposite Window Capture. On Wayland, it uses OBS Screen Capture (PipeWire) and opens the system screen/window chooser.\nCapture-card game captures are created without automatic window-title switching.",
       "waylandPipewireOption": "Wayland screen capture (PipeWire)",
@@ -94,7 +97,11 @@
       "statusStopped": "Not running",
       "guide": "Setup Guide",
       "runOnStartup": "Run on startup",
-      "runOnStartupTooltip": "Start the GSM overlay automatically when GSM starts."
+      "runOnStartupTooltip": "Start the overlay when GSM starts and keep it running. For automatic game sessions, use Open and close with active game instead. Enabling either option turns the other off.",
+      "runWithActiveGame": "Open and close with active game",
+      "runWithActiveGameTooltip": "For every game, open the overlay when its capture or game window is detected and close it when the session ends. Brief detection gaps, alt-tab, and minimization do not close it. Enabling this turns Run on startup off.",
+      "recommended": "Recommended",
+      "settingsError": "Could not load or save overlay options. Reopen Home and try again."
     },
     "actions": {
       "title": "Utilities",
@@ -154,14 +161,28 @@
       "github": "GitHub",
       "discord": "Discord"
     },
+    "update": {
+      "available": "Update Available",
+      "previewDescription": "Development preview using the latest online release notes. Installation is disabled.",
+      "availableVersion": "Update available: {version}",
+      "title": "Update to {version}",
+      "restartDescription": "GSM will download the update and restart to install it.",
+      "install": "Update and Restart",
+      "notNow": "Not Now",
+      "installing": "Updating…",
+      "installingDescription": "Downloading the update. GSM will restart when it is ready.",
+      "installFailed": "The update could not be installed. Try again or choose Not Now.",
+      "notesUnavailable": "Release notes could not be loaded. You can retry or install the update now.",
+      "changed": "The available update has changed. Close this dialog and reopen it to review the latest release."
+    },
     "stats": {
       "loading": "Waiting for GSM stats to load..."
     },
     "console": {
       "openLogsFolder": "Open Logs Folder",
       "openLogsFolderTooltip": "Open logs folder",
-      "exportLogs": "Export Logs",
-      "exportLogsTooltip": "Export logs to a zip archive",
+      "exportLogs": "Export Anonymized Logs",
+      "exportLogsTooltip": "Export a ZIP with detected usernames, home paths, computer names, email/IP addresses, and common credentials redacted. Original logs are unchanged. Review before sharing.",
       "modeSimple": "Mode: Simple",
       "modeAdvanced": "Mode: Advanced",
       "modeSimpleTooltip": "Switch to Advanced logs (shows basic + background logs)",
@@ -275,16 +296,16 @@
     }
   },
   "captureWizard": {
-    "title": "Text Capture Wizard (WIP)",
-    "subtitle": "Finish text input, OCR fallback, and automation for this game.",
+    "title": "Text Capture Wizard",
+    "subtitle": "Learn your text capture options in four steps, or jump to the setting you need.",
     "breadcrumbLabel": "Text capture setup steps",
     "steps": {
-      "preview": "Preview",
+      "preview": "Capture",
       "agent": "Agent",
-      "hook": "Hooks",
+      "hook": "Texthook",
       "ocr": "OCR",
       "profile": "Profile",
-      "finish": "Review"
+      "finish": "Finalize"
     },
     "actions": {
       "deny": "Not now",
@@ -293,8 +314,8 @@
       "next": "Next"
     },
     "preview": {
-      "title": "Check the OBS preview",
-      "description": "GSM refreshes this preview every second and fits the source to the OBS canvas before each screenshot.",
+      "title": "Check your game capture",
+      "description": "GSM uses video capture for screenshots, clips, and OCR. Check that your game is visible below. If the preview is black, try switching the capture type.",
       "scene": "Scene",
       "executable": "Executable",
       "captureType": "Capture type",
@@ -328,16 +349,16 @@
       "useScript": "Use selected script"
     },
     "hook": {
-      "title": "Try Luna or Textractor",
-      "description": "Luna and Textractor hooks are mainly for visual novels. For video games, an Agent script or OCR is more likely to work; only use this if you see clean dialogue.",
+      "title": "Get text directly from the game",
+      "description": "Text hooks read text directly from the game, avoiding OCR recognition errors. Luna and Textractor are usually the best choice for visual novels.",
       "engine": "Engine",
       "luna": "Luna Hook",
       "textractor": "Textractor",
       "start": "Start hook engine",
       "running": "{count} usable hooks found",
       "notRunning": "Hook engine is not running.",
-      "waiting": "Waiting for hooks with text. Advance the game dialogue.",
-      "startFirst": "Start an engine to scan for hooks.",
+      "waiting": "Advance dialogue to find text. If no matching text appears, try Textractor or continue to OCR.",
+      "startFirst": "Start with Luna, advance dialogue in your game, then select the text that matches.",
       "noPreview": "No text preview yet",
       "refreshFailed": "Failed to refresh hooks.",
       "startFailed": "Failed to start hook engine.",
@@ -346,7 +367,7 @@
     },
     "ocr": {
       "title": "Choose the OCR area",
-      "description": "Draw an area around the game's dialogue. When the selector closes, GSM will scan it once so you can check the text it finds.",
+      "description": "OCR reads text from the game picture. It works with most games, including games played through a capture card. Select the dialogue area to get a text sample.",
       "reasonStable": "An OCR area keeps scans focused on the dialogue box.",
       "reasonNoise": "Smaller areas avoid menus, names, and UI noise.",
       "reasonFallback": "It still works for console games, protected engines, and capture cards.",
@@ -373,8 +394,8 @@
       "automationAutoDescription": "Continuously scan the selected area while the game is active."
     },
     "profile": {
-      "title": "Save this game setup",
-      "description": "Save automation for this OBS scene and optionally open GSM Profiles for a larger per-game profile split.",
+      "title": "Finalize this game setup",
+      "description": "Review your text source and choose what starts automatically next time.",
       "source": "Text source",
       "sourceAgent": "Agent script",
       "sourceLuna": "Luna Hook",
@@ -387,7 +408,7 @@
       "ocrNone": "No OCR",
       "ocrManual": "Manual OCR",
       "ocrAuto": "Auto OCR",
-      "launchOverlay": "Launch overlay with this game",
+      "launchOverlay": "Open and close overlay with this game",
       "openProfiles": "Open Profiles",
       "assignLabel": "Assign this scene to a GSM profile",
       "assignHint": "GSM will switch to this profile automatically whenever scene '{scene}' is active.",
@@ -414,6 +435,38 @@
     },
     "errors": {
       "contextFailed": "Failed to load the active capture."
+    },
+    "guided": {
+      "captureNext": "Capture looks right — choose text",
+      "hookNext": "Continue to OCR",
+      "finalize": "Continue to Finalize",
+      "saveAndClose": "Save and close",
+      "skipOcr": "Skip OCR and finalize",
+      "ocrOptional": "Your text hook is selected. You can skip OCR, or set it up for text the hook misses.",
+      "ocrGuide": "Select the dialogue area, check the sample, then choose when OCR runs.",
+      "hookGuide": "1. Start an engine. 2. Advance dialogue in your game. 3. Select the text that matches.",
+      "vnTitle": "Luna / Textractor · Best for visual novels",
+      "agentTitle": "Agent · Game-specific scripts",
+      "agentDescription": "Agent uses a script written for a specific game. Search manually if you already know which script you need.",
+      "agentRecommended": "Strong script match",
+      "agentMatchHint": "Matched against this game’s scene name, window title, or executable. Check the game and platform before using it.",
+      "agentNoMatch": "No strong script match found. Try Luna / Textractor for a visual novel, or continue to OCR.",
+      "useAgent": "Use this script",
+      "stopHook": "Stop engine",
+      "stoppingFailed": "Failed to stop the text hook.",
+      "selectedSource": "Selected: {source}",
+      "noSource": "No text source selected yet. Return to Texthook or OCR to set one up, or save only your capture preferences.",
+      "optionalSettings": "More options: overlay and GSM profile",
+      "noScene": "Start the game and select its capture on Home, then refresh.",
+      "useOcr": "Use OCR and finalize",
+      "keepHook": "Keep text hook and finalize",
+      "engineBusy": "Starting…",
+      "hookSelected": "Text hook selected. Continue to OCR for an optional fallback, or jump to Finalize.",
+      "ocrNotTested": "No sample yet. You can select an area now or use your existing OCR setup.",
+      "agentStart": "Start script",
+      "agentRunning": "Agent is running. Advance dialogue to check the captured text.",
+      "usingSaved": "Your saved setup is loaded. Jump to a step to adjust it.",
+      "otherGameRunning": "A text hook is running for {exe}. Stop it before starting one for this game."
     }
   },
   "install": {
@@ -517,7 +570,6 @@
       "themeHighContrast": "High Contrast",
       "language": "Display Language (AI):",
       "startMinimized": "Start Console Minimized:",
-      "showYuzuLauncher": "Show Yuzu Launcher:",
       "runTransparencyOnStartup": "Run Window Transparency Tool on Startup:",
       "runOverlayOnStartup": "Run Overlay on Startup:",
       "quitOnWindowClose": "Exit GSM when closing the window:",
@@ -894,7 +946,7 @@
       "ocrNone": "None",
       "ocrAuto": "Auto OCR",
       "ocrManual": "Manual OCR",
-      "launchOverlay": "Launch Overlay With Game:",
+      "launchOverlay": "Open and Close Overlay With Active Game:",
       "noSceneHint": "Select or switch to an OBS game to configure automation."
     },
     "scriptPicker": {
@@ -950,7 +1002,7 @@
       "textHookLuna": "Auto-launch LunaTranslator when this game becomes active.",
       "launchDelay": "Delay before starting the selected text hook launcher for this game.",
       "agentScript": "Agent script path for this game. You can set manually, browse, or search.",
-      "launchOverlay": "Start the GSM overlay while this game's session is active, and close the auto-launched overlay when the game/session ends.",
+      "launchOverlay": "Open the overlay when this game's capture or window is detected. Close it after capture or window loss is confirmed, or when switching to an OBS scene where this option is off. Alt-tab and minimization keep it running. Home → Overlay → Open and close with active game applies this to all games. This option is unavailable while either that option or Run on startup is enabled; your per-game choice is kept.",
       "browseScript": "Open file picker and choose an Agent script for this game.",
       "searchScript": "Search all scripts under Agent Scripts Path, ranked by similarity to the game.",
       "downloadAgent": "Download latest Agent from official GitHub releases. Choose any install folder.",
@@ -967,6 +1019,8 @@
   },
   "ocr": {
     "sceneAndAreas": {
+      "autostart": "Autostart OCR:",
+      "autostartHint": "Choose which OCR mode starts automatically when this game is active. This setting is shared with Game Automation.",
       "title": "Game & Areas",
       "areaCount": "{count} area",
       "areaCountPlural": "{count} areas",
@@ -1038,6 +1092,7 @@
       "manual": "Manual (Green Areas)",
       "menu": "Menu (Purple Areas)",
       "areaSelect": "Area Select",
+      "addArea": "Add new area",
       "wholeWindow": "Whole Window",
       "pause": "Pause",
       "keyboard": "Keyboard",
@@ -1151,6 +1206,7 @@
       "manualDelayGamepadOnly": "Apply the manual green-area scan delay only when the action is triggered from a gamepad.",
       "menuHotkey": "Runs the Main OCR (OCR 2) once on the configured purple menu areas. Press Escape to clear.",
       "areaSelectHotkey": "On press, lets you select a temporary area to OCR one time. Useful for menus. Press Escape to clear.",
+      "addAreaHotkey": "Draw one new area, save it, and apply it to running OCR. Existing areas are kept. Choose Normal for automatic capture or Secondary for the Menu hotkey. Press Escape here to clear the binding.",
       "wholeWindowHotkey": "Runs a one-time OCR scan on the full active OCR source (typically your OBS game source), bypassing area rectangles. Press Escape to clear.",
       "pauseHotkey": "Pauses or resumes OCR scanning everywhere. Useful during cutscenes or when you want OCR temporarily out of the way. Press Escape to clear.",
       "processPriority": "Sets the process priority for the OCR Python process on Windows. Higher values may improve OCR responsiveness but can reduce system responsiveness.",
@@ -1177,6 +1233,8 @@
       "comparison": "Dedupe and change-detection thresholds that decide when text is new, stable, or a subset of a previous line."
     },
     "runtime": {
+      "failedLoadAutostart": "Failed to load OCR autostart settings.",
+      "failedSaveAutostart": "Failed to save OCR autostart settings.",
       "idle": "Idle",
       "startingAuto": "Starting auto OCR...",
       "startingManual": "Starting manual OCR...",
@@ -1266,6 +1324,38 @@
     }
   },
   "texthook": {
+    "updates": {
+      "title": "LunaHook & Textractor",
+      "description": "New builds download in the background and are applied when no text hook is running. Both engines are updated together.",
+      "settings": "Engine settings",
+      "automatic": "Update automatically",
+      "automaticOn": "Automatic updates on",
+      "automaticOff": "Automatic updates off",
+      "verificationHint": "Every file is verified before GSM switches packages. The previous package is kept.",
+      "repair": "Repair / reinstall",
+      "updateNow": "Update now",
+      "install": "Install engines",
+      "verifying": "Verifying downloaded files…",
+      "installing": "Installing verified update…",
+      "waiting": "Update verified — installs when the active hook stops.",
+      "failed": "Engine update failed. Check again or reinstall to retry.",
+      "preferenceFailed": "Could not save the automatic update setting.",
+      "installed": "Installed package: {version}",
+      "available": "Available package: {version}",
+      "unknownVersion": "unknown version",
+      "notInstalled": "Engines are not installed or need repair.",
+      "check": "Check now",
+      "checking": "Checking for engine updates…",
+      "checkFailed": "Could not check for engine updates. Try again.",
+      "updateAvailable": "Engine update available.",
+      "upToDate": "Up to date",
+      "download": "Download/update engines",
+      "downloading": "Downloading engines…",
+      "downloadFailed": "Could not download hook engines. Try again.",
+      "ready": "Hook engines are ready.",
+      "stopFirst": "Stop the active text hook before downloading engines.",
+      "progress": "Downloading hook engines ({current}/{total}): {file}"
+    },
     "notice": {
       "title": "About text hooking",
       "description": "Text hooking captures text directly from a running game, which can provide cleaner and more accurate text than OCR when the game is compatible.",
@@ -1319,8 +1409,8 @@
       "title": "Agent Script",
       "scriptPath": "Script path:",
       "scriptPlaceholder": "Select a .js Agent script",
-      "search": "Search",
-      "browse": "Browse",
+      "search": "Search scripts",
+      "browse": "Choose file…",
       "save": "Save",
       "noScripts": "No Agent scripts were found.",
       "pickerTitle": "Select Agent Script",
@@ -1333,8 +1423,10 @@
       "runDetachedHint": "GSM reconnects to the running Agent session the next time it opens."
     },
     "profile": {
-      "title": "Saved Profile",
+      "title": "Save for next time",
       "saved": "Saved",
+      "recommended": "Recommended",
+      "saveHint": "Save a working hook to reuse it next time.",
       "autoHook": "Auto-attach saved hook on next start",
       "copyToClipboard": "Copy processed text to clipboard",
       "flushDelay": "Text revision window (ms):",
@@ -1356,11 +1448,26 @@
       "rowLabel": "Select hook #{id}: {name}",
       "searchTitle": "Hook Search",
       "waiting": "Waiting for hooks. Trigger some text in the game.",
-      "notRunning": "Click 'Start' to start the hook engine.",
-      "noTextYet": "(no text yet)"
+      "notRunning": "Start text capture to find hooks.",
+      "noTextYet": "(no text yet)",
+      "rankingHint": "Readable text matching your target language ({language}) appears first. Language hints use writing systems and are approximate. Your selected hook stays visible.",
+      "readabilityHint": "Readable text appears first. Your selected hook stays visible.",
+      "showNoise": "Show likely noise ({count})",
+      "onlyNoise": "Only likely noise so far. Show likely noise to inspect it, or advance the text in the game.",
+      "quality": {
+        "targetLanguage": "Likely language match",
+        "possibleLanguage": "Possible language match",
+        "readable": "Readable text",
+        "mixed": "Text mixed with noise",
+        "paths": "Paths or technical text",
+        "garbled": "Possibly garbled",
+        "repetitive": "Repetitive text",
+        "symbols": "Mostly numbers or symbols"
+      }
     },
     "output": {
       "title": "Selected Hook Output",
+      "checkHint": "Check that this matches the text in your game.",
       "waiting": "Waiting for text from the selected hook…",
       "selectHook": "Select a hook from the list to preview its text."
     },
@@ -1373,10 +1480,15 @@
       "ready": "Ready",
       "noTarget": "No Target"
     },
+    "layout": {
+      "captureOptions": "Capture options",
+      "troubleshooting": "Troubleshooting"
+    },
     "actions": {
       "start": "Start",
       "searchHooks": "Search for hooks",
-      "stop": "Stop"
+      "stop": "Stop",
+      "preparing": "Preparing text capture…"
     },
     "dev": {
       "sendLargePayload": "Send random Japanese payload ({size} characters)",
@@ -1534,7 +1646,7 @@
       "removeNonJapanese": "Remove Non-Japanese Characters",
       "removeNonJapaneseDesc": "Filter out characters not in the Shift-JIS character set",
       "removeNewlines": "Remove Newlines",
-      "removeNewlinesDesc": "Join all lines into a single line separated by spaces",
+      "removeNewlinesDesc": "Remove line breaks without adding spaces",
       "removeNumbers": "Remove Numbers",
       "removeNumbersDesc": "Strip all numeric digits (0-9)",
       "removeEnglish": "Remove English Letters",

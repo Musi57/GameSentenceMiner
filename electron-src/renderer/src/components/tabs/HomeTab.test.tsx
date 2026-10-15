@@ -229,6 +229,41 @@ describe("HomeTab", () => {
     );
   });
 
+  it("switches between mutually exclusive overlay modes and restores both after a failed save", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    let saved = { runOverlayOnStartup: true, runOverlayWithActiveGame: false };
+    let failSave = false;
+    invokeMock.mockImplementation(async (channel: string, patch: Partial<typeof saved>) => {
+      if (channel === "settings.getSettings") return saved;
+      if (channel === "settings.saveSettings") {
+        if (failSave) return { success: false };
+        saved = { ...saved, ...patch };
+        if (patch.runOverlayOnStartup) saved.runOverlayWithActiveGame = false;
+        if (patch.runOverlayWithActiveGame) saved.runOverlayOnStartup = false;
+        return { success: true, settings: saved };
+      }
+      return fallback(channel);
+    });
+    await act(async () => root.render(<I18nProvider><HomeTab active /></I18nProvider>));
+    const startup = container.querySelector<HTMLInputElement>("#home-overlay-startup-toggle")!;
+    const activeGame = container.querySelector<HTMLInputElement>("#home-overlay-active-game-toggle")!;
+    expect(startup.checked).toBe(true);
+    expect(activeGame.checked).toBe(false);
+    await act(async () => activeGame.click());
+    expect(invokeMock).toHaveBeenCalledWith("settings.saveSettings", { runOverlayWithActiveGame: true });
+    expect(startup.checked).toBe(false);
+    expect(activeGame.checked).toBe(true);
+    failSave = true;
+    await act(async () => startup.click());
+    expect(startup.checked).toBe(false);
+    expect(activeGame.checked).toBe(true);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Could not load or save");
+    failSave = false;
+    await act(async () => startup.click());
+    expect(startup.checked).toBe(true);
+    expect(activeGame.checked).toBe(false);
+  });
+
   it("persists the overlay startup toggle from the overlay card", async () => {
     await act(async () => {
       root.render(<HomeTab active />);
@@ -469,6 +504,60 @@ describe("HomeTab", () => {
     expect(container.textContent).not.toContain("Install AnkiBeacon");
   });
 
+  it("groups monitors separately and creates a monitor scene without a window capture mode", async () => {
+    const monitor: ObsWindow = {
+      title: "Display 2: 2560x1440 @ 1920,0",
+      value: '["monitor","display-2"]',
+      targetKind: "monitor",
+      monitorId: "display-2",
+    };
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "get_gsm_status") return okStatus;
+      if (channel === "settings.getSettings") return { textCaptureWizardEnabled: false };
+      if (channel === "obs.getScenes") return [];
+      if (channel === "obs.getWindows") return [
+        { title: "Game", value: "game", targetKind: "window" },
+        { title: "Card", value: "card", targetKind: "capture_card" },
+        monitor,
+      ];
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<HomeTab active />);
+      await flushAsyncWork();
+    });
+
+    const select = container.querySelector<HTMLSelectElement>("#home-window-select")!;
+    const monitorGroup = select.querySelector('optgroup[label="Monitor Capture"]');
+    expect(monitorGroup?.textContent).toContain(monitor.title);
+    expect(select.querySelector('optgroup[label="Windows / Games"]')?.textContent).not.toContain(monitor.title);
+
+    await act(async () => {
+      setElementValue(select, monitor.value, "change");
+      await flushAsyncWork();
+    });
+
+    expect(container.querySelector('input[name="home-capture-mode"]')).toBeNull();
+    const setupButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Setup Capture",
+    )!;
+    expect(setupButton.disabled).toBe(false);
+
+    await act(async () => {
+      setElementValue(container.querySelector<HTMLInputElement>("#home-scene-name-override")!, "Freeflow", "input");
+      await flushAsyncWork();
+    });
+    await act(async () => {
+      setupButton.click();
+      await flushAsyncWork();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("obs.createScene", expect.objectContaining({
+      targetKind: "monitor", monitorId: "display-2", sceneName: "Freeflow", captureMode: undefined,
+    }));
+  });
+
   it("sends the selected capture mode when creating a scene", async () => {
     invokeMock.mockImplementation(async (channel: string, payload?: unknown) => {
       if (channel === "get_gsm_status") return okStatus;
@@ -494,7 +583,11 @@ describe("HomeTab", () => {
     });
 
     await act(async () => {
-      root.render(<HomeTab active />);
+      root.render(
+        <I18nProvider>
+          <HomeTab active />
+        </I18nProvider>,
+      );
       await flushAsyncWork();
     });
 

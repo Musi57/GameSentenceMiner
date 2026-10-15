@@ -61,7 +61,7 @@ function isCaptureModeAvailable(
   windowOption: ObsWindow | undefined | null,
   mode: ObsCaptureMode,
 ): boolean {
-  if (!windowOption || windowOption.targetKind === "capture_card") return false;
+  if (!windowOption || (windowOption.targetKind && windowOption.targetKind !== "window")) return false;
   return typeof windowOption.captureValues?.[mode] === "string";
 }
 
@@ -96,7 +96,7 @@ function StatusPill({ icon, label, text, variant, tooltip, onClick, clickable }:
   return (
     <button
       className={`home-status-pill home-status-pill--${variant}${clickable ? " home-status-pill--clickable" : ""}`}
-      title={tooltip}
+      data-tip={tooltip}
       onClick={onClick}
       type="button"
       tabIndex={clickable ? 0 : -1}
@@ -317,6 +317,10 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
   const [statusError, setStatusError] = useState(false);
   const [overlayRunning, setOverlayRunning] = useState(false);
   const [runOverlayOnStartup, setRunOverlayOnStartup] = useState(false);
+  const [runOverlayWithActiveGame, setRunOverlayWithActiveGame] = useState(false);
+  const [overlaySettingsSaving, setOverlaySettingsSaving] = useState(false);
+  const [overlaySettingsLoaded, setOverlaySettingsLoaded] = useState(false);
+  const [overlaySettingsError, setOverlaySettingsError] = useState(false);
   const [ankiBeaconModalOpen, setAnkiBeaconModalOpen] = useState(false);
   const [ankiBeaconNudgeReady, setAnkiBeaconNudgeReady] = useState(false);
   const ankiApiConnected = status?.anki_connected === true;
@@ -354,15 +358,20 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
     if (!active) return;
     let cancelled = false;
 
-    void invokeIpc<{ runOverlayOnStartup?: boolean }>("settings.getSettings")
+    setOverlaySettingsLoaded(false);
+    void invokeIpc<{ runOverlayOnStartup?: boolean; runOverlayWithActiveGame?: boolean }>("settings.getSettings")
       .then((settings) => {
         if (!cancelled) {
           setRunOverlayOnStartup(settings?.runOverlayOnStartup === true);
+          setRunOverlayWithActiveGame(settings?.runOverlayWithActiveGame === true);
+          setOverlaySettingsLoaded(true);
+          setOverlaySettingsError(false);
         }
       })
       .catch(() => {
         if (!cancelled) {
           setRunOverlayOnStartup(false);
+          setOverlaySettingsError(true);
         }
       });
 
@@ -511,14 +520,18 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
 
   const selectedWindow = windows.find((w) => w.value === selectedWindowValue) ?? null;
   const isCaptureCardSelection = selectedWindow?.targetKind === "capture_card";
+  const isMonitorSelection = selectedWindow?.targetKind === "monitor";
   const isWaylandPipewireSelection = selectedWindow?.targetKind === "wayland_pipewire";
   const canUseWindowCapture = isCaptureModeAvailable(selectedWindow, "window_capture");
   const canUseGameCapture = isCaptureModeAvailable(selectedWindow, "game_capture");
-  const canSelectCaptureMode = Boolean(selectedWindow && isWindows && !isCaptureCardSelection);
+  const canSelectCaptureMode = Boolean(
+    selectedWindow && isWindows && (selectedWindow.targetKind ?? "window") === "window",
+  );
   const canCreateScene = Boolean(
     canEnumerateWindows &&
       selectedWindow &&
-      (isCaptureCardSelection || isLinux || isCaptureModeAvailable(selectedWindow, selectedCaptureMode)),
+      (isCaptureCardSelection || isMonitorSelection || isLinux ||
+        isCaptureModeAvailable(selectedWindow, selectedCaptureMode)),
   );
 
   useEffect(() => {
@@ -721,11 +734,12 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
       value: win.value,
       sceneName: overrideSceneName.trim() || win.title,
       targetKind: win.targetKind ?? "window",
-      captureMode: selectedCaptureMode,
+      captureMode: canSelectCaptureMode ? selectedCaptureMode : undefined,
       captureValues: win.captureValues ?? {},
       videoDeviceId: win.videoDeviceId,
       audioDeviceId: win.audioDeviceId,
       wasapiInputDeviceId: win.wasapiInputDeviceId,
+      monitorId: win.monitorId,
       pipewireInputKind: win.pipewireInputKind,
     };
     await invokeIpc("obs.createScene", payload);
@@ -745,7 +759,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
       setCaptureWizardScene(null);
       setCaptureWizardOpen(true);
     }
-  }, [selectedWindow, overrideSceneName, selectedCaptureMode, refreshAll]);
+  }, [selectedWindow, overrideSceneName, selectedCaptureMode, canSelectCaptureMode, refreshAll]);
 
   const handleCaptureCardToggle = useCallback(async (enabled: boolean) => {
     try {
@@ -772,19 +786,40 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
   const openAnkiBeaconModal = useCallback(() => setAnkiBeaconModalOpen(true), []);
   const closeAnkiBeaconModal = useCallback(() => setAnkiBeaconModalOpen(false), []);
   const openExternal = useCallback((url: string) => void invokeIpc("open-external-link", url), []);
-  const handleRunOverlayOnStartupChange = useCallback(async (enabled: boolean) => {
-    setRunOverlayOnStartup(enabled);
+  const handleOverlayAutomationChange = useCallback(async (
+    key: "runOverlayOnStartup" | "runOverlayWithActiveGame", enabled: boolean,
+  ) => {
+    const previousStartup = runOverlayOnStartup;
+    const previousActiveGame = runOverlayWithActiveGame;
+    setOverlaySettingsSaving(true);
+    setOverlaySettingsError(false);
+    if (key === "runOverlayOnStartup") {
+      setRunOverlayOnStartup(enabled);
+      if (enabled) setRunOverlayWithActiveGame(false);
+    } else {
+      setRunOverlayWithActiveGame(enabled);
+      if (enabled) setRunOverlayOnStartup(false);
+    }
     try {
       const result = await invokeIpc<{
-        settings?: { runOverlayOnStartup?: boolean };
-      }>("settings.saveSettings", { runOverlayOnStartup: enabled });
+        success: boolean;
+        settings?: { runOverlayOnStartup?: boolean; runOverlayWithActiveGame?: boolean };
+      }>("settings.saveSettings", { [key]: enabled });
+      if (!result?.success) throw new Error("Overlay settings could not be saved");
       if (typeof result?.settings?.runOverlayOnStartup === "boolean") {
         setRunOverlayOnStartup(result.settings.runOverlayOnStartup);
       }
+      if (typeof result?.settings?.runOverlayWithActiveGame === "boolean") {
+        setRunOverlayWithActiveGame(result.settings.runOverlayWithActiveGame);
+      }
     } catch {
-      setRunOverlayOnStartup(!enabled);
+      setRunOverlayOnStartup(previousStartup);
+      setRunOverlayWithActiveGame(previousActiveGame);
+      setOverlaySettingsError(true);
+    } finally {
+      setOverlaySettingsSaving(false);
     }
-  }, []);
+  }, [runOverlayOnStartup, runOverlayWithActiveGame]);
 
   /* ---- Derived status values ------------------------------------- */
   const gsmReady = status?.ready ?? false;
@@ -861,9 +896,12 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
     clipTooltip = t("home.status.tooltipClipboardDisabled");
   }
 
-  /* ---- Window groupings ------------------------------------------ */
-  const windowTargets = windows.filter((w) => w.targetKind !== "capture_card");
+  /* ---- Capture target groupings ---------------------------------- */
+  const windowTargets = windows.filter(
+    (w) => w.targetKind !== "capture_card" && w.targetKind !== "monitor",
+  );
   const captureCardTargets = windows.filter((w) => w.targetKind === "capture_card");
+  const monitorTargets = windows.filter((w) => w.targetKind === "monitor");
 
   /* ---- Render ---------------------------------------------------- */
   return (
@@ -901,7 +939,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     type="button"
                     className="home-icon-btn"
                     onClick={() => void refreshAll()}
-                    title={t("home.obs.refreshScenes")}
+                    data-tip={t("home.obs.refreshScenes")}
                     aria-label={t("home.obs.refreshScenes")}
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
@@ -1009,7 +1047,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     className="home-text-btn"
                     disabled={isHelperScene}
                     onClick={handleOpenCaptureWizard}
-                    title={t("home.obs.runCaptureWizardTooltip")}
+                    data-tip={t("home.obs.runCaptureWizardTooltip")}
                   >
                     {t("home.obs.runCaptureWizard")}
                   </button>
@@ -1049,7 +1087,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                         value={windowsDetectedExe}
                         readOnly
                         disabled
-                        title={t("home.obs.gameExeWindowsTooltip")}
+                        data-tip={t("home.obs.gameExeWindowsTooltip")}
                         autoComplete="off"
                       />
                     ) : (
@@ -1095,10 +1133,10 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
               {t("home.obs.setupNewScene")}
             </div>
             <div className="card-body">
-              {/* Window selector */}
+              {/* Capture target selector */}
               <div className="home-row">
                 <label className="home-row__label" htmlFor="home-window-select">
-                  {t("home.obs.sectionWindows")}
+                  {t("home.obs.captureTargetLabel")}
                 </label>
                 <div className="home-row__controls">
                   <select
@@ -1106,7 +1144,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     className="home-select"
                     value={selectedWindowValue}
                     disabled={!canEnumerateWindows}
-                    title={!canEnumerateWindows ? t("home.obs.notSupportedTooltip") : undefined}
+                    data-tip={!canEnumerateWindows ? t("home.obs.notSupportedTooltip") : undefined}
                     onChange={(e) => handleWindowSelectionChange(e.target.value)}
                   >
                     {!canEnumerateWindows && (
@@ -1125,12 +1163,17 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                       <optgroup label={t("home.obs.sectionWindows")}>
                         {windowTargets.map((w) => (
                           <option key={w.value} value={w.value}>
-                            {w.targetKind === "capture_card"
-                              ? t("home.obs.captureCardPrefix", { title: w.title })
-                              : w.targetKind === "wayland_pipewire"
-                                ? t("home.obs.waylandPipewireOption")
-                                : w.title}
+                            {w.targetKind === "wayland_pipewire"
+                              ? t("home.obs.waylandPipewireOption")
+                              : w.title}
                           </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {monitorTargets.length > 0 && (
+                      <optgroup label={t("home.obs.sectionMonitors")}>
+                        {monitorTargets.map((w) => (
+                          <option key={w.value} value={w.value}>{w.title}</option>
                         ))}
                       </optgroup>
                     )}
@@ -1149,7 +1192,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     className="home-icon-btn"
                     disabled={!canEnumerateWindows}
                     onClick={() => void loadWindows()}
-                    title={t("home.obs.refreshWindows")}
+                    data-tip={t("home.obs.refreshWindows")}
                     aria-label={t("home.obs.refreshWindows")}
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
@@ -1189,7 +1232,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                 </div>
               </div>}
 
-              {/* Override scene name — only shown once a window is selected */}
+              {/* Override scene name — only shown once a target is selected */}
               {selectedWindowValue && <div className="home-row home-row--scene-name-override">
                 <label className="home-row__label" htmlFor="home-scene-name-override">
                   {t("home.obs.overrideSceneName")}
@@ -1214,7 +1257,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                   <label
                     className="home-toggle"
                     htmlFor="home-capture-card-toggle"
-                    title={t("home.obs.captureCardTooltip")}
+                    data-tip={t("home.obs.captureCardTooltip")}
                   >
                     <input
                       id="home-capture-card-toggle"
@@ -1236,10 +1279,12 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     type="button"
                     disabled={!canCreateScene}
                     onClick={() => void handleCreateScene()}
-                    title={t(
+                    data-tip={t(
                       isWaylandPipewireSelection
                         ? "home.obs.waylandPipewireTooltip"
-                        : "home.obs.setupCaptureTooltip",
+                        : isMonitorSelection
+                          ? "home.obs.monitorCaptureTooltip"
+                          : "home.obs.setupCaptureTooltip",
                     )}
                   >
                     {t("home.obs.setupCapture")}
@@ -1272,7 +1317,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     type="button"
                     className="home-overlay-primary-btn"
                     onClick={overlayRunning ? openOverlaySettings : runOverlay}
-                    title={
+                    data-tip={
                       overlayRunning
                         ? t("home.actions.overlaySettingsTooltip")
                         : t("home.actions.overlayTooltip")
@@ -1284,24 +1329,43 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     type="button"
                     className="home-quick-btn home-overlay-guide-btn"
                     onClick={() => openExternal(OVERLAY_DOCS_URL)}
-                    title={t("home.actions.overlayWiki")}
+                    data-tip={t("home.actions.overlayWiki")}
                   >
                     {t("home.overlay.guide")}
                   </button>
                 </div>
-                <label
-                  className="home-toggle home-overlay-card__startup"
-                  htmlFor="home-overlay-startup-toggle"
-                  title={t("home.overlay.runOnStartupTooltip")}
-                >
-                  <input
-                    id="home-overlay-startup-toggle"
-                    type="checkbox"
-                    checked={runOverlayOnStartup}
-                    onChange={(e) => void handleRunOverlayOnStartupChange(e.target.checked)}
-                  />
-                  <span>{t("home.overlay.runOnStartup")}</span>
-                </label>
+                <div className="home-overlay-card__automation">
+                  <label
+                    className="home-toggle home-overlay-card__startup"
+                    htmlFor="home-overlay-active-game-toggle"
+                    data-tip={t("home.overlay.runWithActiveGameTooltip")}
+                  >
+                    <input
+                      id="home-overlay-active-game-toggle"
+                      type="checkbox"
+                      checked={runOverlayWithActiveGame}
+                      disabled={!overlaySettingsLoaded || overlaySettingsSaving}
+                      onChange={(e) => void handleOverlayAutomationChange("runOverlayWithActiveGame", e.target.checked)}
+                    />
+                    <span>{t("home.overlay.runWithActiveGame")}</span>
+                    <span className="home-overlay-card__recommended">{t("home.overlay.recommended")}</span>
+                  </label>
+                  <label
+                    className="home-toggle home-overlay-card__startup"
+                    htmlFor="home-overlay-startup-toggle"
+                    data-tip={t("home.overlay.runOnStartupTooltip")}
+                  >
+                    <input
+                      id="home-overlay-startup-toggle"
+                      type="checkbox"
+                      checked={runOverlayOnStartup}
+                      disabled={!overlaySettingsLoaded || overlaySettingsSaving}
+                      onChange={(e) => void handleOverlayAutomationChange("runOverlayOnStartup", e.target.checked)}
+                    />
+                    <span>{t("home.overlay.runOnStartup")}</span>
+                  </label>
+                  {overlaySettingsError ? <p role="alert">{t("home.overlay.settingsError")}</p> : null}
+                </div>
               </div>
               {!isWindows && (
                 <span className="home-overlay-card__warning">
@@ -1319,7 +1383,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                 type="button"
                 className="home-quick-btn"
                 onClick={openGSMSettings}
-                title={t("home.actions.gsmSettingsTooltip")}
+                data-tip={t("home.actions.gsmSettingsTooltip")}
               >
                 {t("home.actions.gsmSettings")}
               </button>
@@ -1327,7 +1391,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                 type="button"
                 className="home-quick-btn"
                 onClick={openTexthooker}
-                title={t("home.actions.texthookerTooltip")}
+                data-tip={t("home.actions.texthookerTooltip")}
               >
                 {t("home.actions.texthooker")}
               </button>

@@ -48,6 +48,7 @@ from GameSentenceMiner.util.platform.gamepad_hotkey import (
     GamepadInputClient,
     parse_gamepad_binding,
 )
+from GameSentenceMiner.util.platform.window_state_monitor import request_anki_confirmation_process_pause
 
 
 # -------------------------------------------------------------------------
@@ -196,6 +197,7 @@ ANKI_CONFIRMATION_GAMEPAD_ACTIONS = (
     ("add_next_line", "confirmation_gamepad_add_next_line", "7"),
     ("expand_audio_start", "confirmation_gamepad_expand_audio_start", "4"),
     ("expand_audio_end", "confirmation_gamepad_expand_audio_end", "5"),
+    ("play_audio", "confirmation_gamepad_play_audio", "3"),
 )
 
 
@@ -758,13 +760,13 @@ class AnkiConfirmationDialog(QDialog):
 
         # Show animated screenshot status if pending
         if self.reusing_screenshot:
-            self.screenshot_button.setText("Reusing screenshot")
+            self.screenshot_button.setText("Change reused screenshot")
             self.screenshot_button.setStyleSheet("color: green; font-weight: bold;")
-            self.screenshot_button.setEnabled(False)
+            self.screenshot_button.setEnabled(True)
         elif pending_animated:
-            self.screenshot_button.setText("🎬 Animated (generating after confirmation)")
+            self.screenshot_button.setText("Replace animation with screenshot(s)")
             self.screenshot_button.setStyleSheet("color: #ff8c00; font-weight: bold;")
-            self.screenshot_button.setEnabled(False)
+            self.screenshot_button.setEnabled(True)
         else:
             self.screenshot_button.setText("Select New Screenshot")
             self.screenshot_button.setStyleSheet("")
@@ -813,6 +815,10 @@ class AnkiConfirmationDialog(QDialog):
             self.translation_text.setPlaceholderText("")
 
     def _load_image_to_label(self, path, label_widget):
+        from GameSentenceMiner.util.media.screenshot_selection import ScreenshotSelectionResult
+
+        if isinstance(path, ScreenshotSelectionResult):
+            path = path.items[0].path
         label_widget.setStyleSheet("")
         if not path or not os.path.exists(path):
             label_widget.setPixmap(QPixmap())
@@ -995,6 +1001,9 @@ class AnkiConfirmationDialog(QDialog):
             self._apply_gamepad_confirmation_action(use_audio=False)
         elif action == "confirm_with_audio":
             self._apply_gamepad_confirmation_action(use_audio=True)
+        elif action == "play_audio":
+            if self.audio_button.isVisible() and self.audio_button.isEnabled():
+                self.audio_button.click()
         elif action in ("add_previous_line", "add_next_line", "expand_audio_start", "expand_audio_end"):
             button = {
                 "add_previous_line": self.add_prev_line_button,
@@ -1234,17 +1243,23 @@ class AnkiConfirmationDialog(QDialog):
         video_path = gsm_state.current_replay
         self._cancel_auto_accept()
         timestamp = self.previous_screenshot_timestamp if previous else self.screenshot_timestamp
-        selected_path = launch_screenshot_selector(
+        selected = launch_screenshot_selector(
             video_path,
             timestamp,
             mode=get_config().screenshot.screenshot_timing_setting,
         )
-        if not selected_path:
+        if not selected:
             return
         target_attr = "previous_screenshot_path" if previous else "screenshot_path"
         label_widget = self.prev_image_label if previous else self.image_label
-        setattr(self, target_attr, selected_path)
-        self._load_image_to_label(selected_path, label_widget)
+        setattr(self, target_attr, selected)
+        self._load_image_to_label(selected, label_widget)
+        if not previous:
+            self.screenshot_button.setText("Change selected screenshot(s)")
+            self.screenshot_button.setStyleSheet("color: green; font-weight: bold;")
+            self.animated_audio_notice_label.setVisible(False)
+        if len(selected.items) > 1:
+            label_widget.setToolTip(f"{len(selected.items)} screenshots selected in order")
 
     @staticmethod
     def _dialogue_lines_from_context(context):
@@ -1598,20 +1613,20 @@ class AnkiConfirmationDialog(QDialog):
         if not line or self._replay_video_duration <= 0 or self._replay_file_mod_time is None:
             return None
 
-        cached = self._dialogue_line_start_cache.get(line.id)
-        if cached is not None:
-            return cached
+        anchor = self._dialogue_line_start_cache.get(line.id)
+        if anchor is None:
+            try:
+                time_delta = self._replay_file_mod_time - line.time
+                anchor = self._replay_video_duration - time_delta.total_seconds() + get_config().audio.beginning_offset
+                anchor = max(0.0, min(anchor, self._replay_video_duration))
+            except Exception as e:
+                logger.debug(f"Failed computing dialogue line anchor: {e}")
+                return None
+            self._dialogue_line_start_cache[line.id] = anchor
 
-        try:
-            time_delta = self._replay_file_mod_time - line.time
-            anchor = self._replay_video_duration - time_delta.total_seconds() + get_config().audio.beginning_offset
-            anchor = max(0.0, min(anchor, self._replay_video_duration))
-        except Exception as e:
-            logger.debug(f"Failed computing dialogue line anchor: {e}")
-            return None
-
-        self._dialogue_line_start_cache[line.id] = anchor
-        return anchor
+        # Anchors are on the video; the edit range is in the audio, which may have pause silence removed.
+        timeline = (self._audio_edit_context or {}).get("timeline")
+        return timeline.to_audio(anchor) if timeline else anchor
 
     def _schedule_auto_line_expand(self, which):
         if not self._dialogue_line_expansion_enabled() or self._dialogue_line_update_in_progress:
@@ -1867,6 +1882,7 @@ class AnkiConfirmationDialog(QDialog):
             "rebase_on_selection_trim": bool(
                 AnkiConfirmationDialog._audio_edit_context_value(context, "rebase_on_selection_trim", False)
             ),
+            "timeline": AnkiConfirmationDialog._audio_edit_context_value(context, "timeline"),
         }
 
     def _load_audio_edit_context(self, context):
@@ -2443,7 +2459,12 @@ class AnkiConfirmationDialog(QDialog):
     def _build_dialog_result_metadata(self):
         audio_edit_range = None
         if self._audio_edit_range:
-            audio_edit_range = (float(self._audio_edit_range[0]), float(self._audio_edit_range[1]))
+            start, end = float(self._audio_edit_range[0]), float(self._audio_edit_range[1])
+            # Consumers cut the video, which still contains any pause silence removed from the audio.
+            timeline = (self._audio_edit_context or {}).get("timeline")
+            if timeline:
+                start, end = timeline.to_source(start), timeline.to_source(end, before_cut=True)
+            audio_edit_range = (start, end)
 
         return {
             "selected_lines": self._selected_lines_for_pipeline(),
@@ -2593,9 +2614,14 @@ class AnkiConfirmationDialog(QDialog):
 
     def exec(self):
         self._apply_window_behavior_preferences()
-        if self._should_focus_on_show():
-            return self._exec_with_activation()
-        return self._exec_without_activation()
+        pause_requested = request_anki_confirmation_process_pause(True)
+        try:
+            if self._should_focus_on_show():
+                return self._exec_with_activation()
+            return self._exec_without_activation()
+        finally:
+            if pause_requested:
+                request_anki_confirmation_process_pause(False)
 
 
 def show_anki_confirmation(

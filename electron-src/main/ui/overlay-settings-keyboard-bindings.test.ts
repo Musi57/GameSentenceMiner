@@ -17,7 +17,7 @@ function nextTick(delay = 0) {
   return new Promise((resolve) => setTimeout(resolve, delay));
 }
 
-function loadOverlaySettingsPage() {
+function loadOverlaySettingsPage(platform = "win32") {
   const settingsPath = path.resolve(process.cwd(), "GSM_Overlay/settings.html");
   const html = fs.readFileSync(settingsPath, "utf8");
   const sent: Array<{ channel: string; payload: IpcPayload }> = [];
@@ -72,7 +72,7 @@ function loadOverlaySettingsPage() {
         }
         throw new Error(`Unexpected require: ${moduleName}`);
       };
-      window.process = { platform: "win32" };
+      window.process = { platform };
       window.WebSocket = FakeWebSocket;
       window.setInterval = () => 0;
       window.clearInterval = () => {};
@@ -90,7 +90,167 @@ function loadOverlaySettingsPage() {
   return { dom, ready, sent, listeners };
 }
 
+describe("overlay adaptive OCR retry settings", () => {
+  it("defaults off, sends edits, and follows the active GSM profile", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      page.listeners.get("preload-settings")?.(null, {
+        userSettings: {}, defaultSettings: {},
+        websocketStates: { ws1: false, ws2: false }, runtimeSettings: {}
+      });
+      await nextTick();
+      const control = page.dom.window.document.getElementById("adaptive_ocr_retries");
+      expect(control.checked).toBe(false);
+      expect(control.closest('[data-tab="capture"]')).not.toBeNull();
+
+      control.checked = true;
+      control.dispatchEvent(new page.dom.window.Event("change", { bubbles: true }));
+      await nextTick();
+      expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({
+        key: "adaptive_ocr_retries", value: true
+      });
+
+      page.listeners.get("settings-updated")?.(null, { adaptive_ocr_retries: false });
+      await nextTick();
+      expect(control.checked).toBe(false);
+      page.listeners.get("settings-updated")?.(null, { adaptive_ocr_retries: true });
+      await nextTick();
+      expect(control.checked).toBe(true);
+    } finally {
+      page.dom.window.close();
+    }
+  });
+});
+
 describe("overlay settings keyboard binding capture", () => {
+  it("defaults to XInput only and saves/restores independent listener switches", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      const preload = (settings: Record<string, boolean>) => page.listeners.get("preload-settings")?.(null, {
+        userSettings: settings,
+        defaultSettings: { gamepadXinputEnabled: true, gamepadDinputEnabled: false },
+        websocketStates: { ws1: false, ws2: false }, runtimeSettings: {}
+      });
+      preload({ gamepadEnabled: false });
+      await nextTick();
+      const doc = page.dom.window.document;
+      const xinput = doc.getElementById("gamepadXinputEnabled");
+      const dinput = doc.getElementById("gamepadDinputEnabled");
+      expect(xinput.checked).toBe(true);
+      expect(dinput.checked).toBe(false);
+      expect(xinput.disabled).toBe(false);
+      expect(dinput.disabled).toBe(false);
+      expect(xinput.closest('#gamepadSettingsDetails')).toBeNull();
+      expect(doc.getElementById("windows-gamepad-listeners").textContent).toContain("Restart GSM");
+
+      for (const [control, value] of [[xinput, false], [dinput, true]] as const) {
+        control.checked = value;
+        control.dispatchEvent(new page.dom.window.Event("change", { bubbles: true }));
+        await nextTick();
+        expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({
+          key: control.id, value
+        });
+      }
+      preload({ gamepadXinputEnabled: false, gamepadDinputEnabled: true });
+      await nextTick();
+      expect(xinput.checked).toBe(false);
+      expect(dinput.checked).toBe(true);
+      preload({ gamepadXinputEnabled: false, gamepadDinputEnabled: false });
+      await nextTick();
+      expect(xinput.checked).toBe(false);
+      expect(dinput.checked).toBe(false);
+    } finally {
+      page.dom.window.close();
+    }
+  });
+
+  it.each(["linux", "darwin"])("hides Windows listener switches on %s", async (platform) => {
+    const page = loadOverlaySettingsPage(platform);
+    try {
+      await page.ready;
+      await page.dom.window.applyPlatformSpecifics();
+      expect(page.dom.window.document.getElementById("windows-gamepad-listeners").hidden).toBe(true);
+    } finally {
+      page.dom.window.close();
+    }
+  });
+
+  it("captures, restores, and clears the translation controller binding", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      page.listeners.get("preload-settings")?.(null, {
+        userSettings: { gamepadEnabled: true }, defaultSettings: {},
+        websocketStates: { ws1: false, ws2: false }, runtimeSettings: {}
+      });
+      await nextTick();
+      const input = page.dom.window.document.getElementById("gamepadTranslateButton");
+      expect(input?.value).toBe("Disabled");
+      expect(input.closest('[data-tab="gamepad"]')).not.toBeNull();
+      input.focus();
+      for (const [button, pressed] of [[5, true], [2, true], [2, false], [5, false]]) {
+        page.dom.window.updateServerGamepadState({ type: "button", device: "pad", button, pressed });
+      }
+      await nextTick();
+      expect(input.value).toBe("RB + X");
+      expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({
+        key: "gamepadTranslateButton", value: "RB + X"
+      });
+
+      page.listeners.get("settings-updated")?.(null, { gamepadTranslateButton: "LT + Y" });
+      expect(input.value).toBe("LT + Y");
+      input.dispatchEvent(new page.dom.window.KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+      await nextTick();
+      expect(input.value).toBe("Disabled");
+      expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({
+        key: "gamepadTranslateButton", value: "Disabled"
+      });
+      page.listeners.get("settings-updated")?.(null, { gamepadEnabled: false });
+      expect(input.disabled).toBe(true);
+    } finally {
+      page.dom.window.close();
+    }
+  });
+
+  it("loads unbound Jiten word actions, restores saved bumpers, and clears bindings", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      page.listeners.get("preload-settings")?.(null, {
+        userSettings: { gamepadEnabled: true }, defaultSettings: {},
+        websocketStates: { ws1: false, ws2: false }, runtimeSettings: {}
+      });
+      await nextTick();
+      const doc = page.dom.window.document;
+      for (const id of ["gamepadPrevJitenWordButton", "gamepadNextJitenWordButton",
+        "keyboardPrevJitenWordKey", "keyboardNextJitenWordKey"]) {
+        expect(doc.getElementById(id)?.value).toBe("Disabled");
+      }
+      page.listeners.get("settings-updated")?.(null, {
+        gamepadPrevJitenWordButton: "LB", gamepadNextJitenWordButton: "RB"
+      });
+      await nextTick();
+      for (const [id, label] of [["gamepadPrevJitenWordButton", "LB"], ["gamepadNextJitenWordButton", "RB"]]) {
+        const input = doc.getElementById(id);
+        expect(input.value).toBe(label);
+        input.dispatchEvent(new page.dom.window.KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+        await nextTick();
+        expect(input.value).toBe("Disabled");
+        expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({
+          key: id, value: "Disabled"
+        });
+      }
+      page.listeners.get("settings-updated")?.(null, { gamepadEnabled: false });
+      await nextTick();
+      expect(doc.getElementById("gamepadPrevJitenWordButton").disabled).toBe(true);
+      expect(doc.getElementById("gamepadNextJitenWordButton").disabled).toBe(true);
+    } finally {
+      page.dom.window.close();
+    }
+  });
+
   it("loads, edits, and restores navigation experiment settings through IPC", async () => {
     const page = loadOverlaySettingsPage();
     try {
