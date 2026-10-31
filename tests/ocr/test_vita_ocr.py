@@ -15,7 +15,7 @@ def make_engine(monkeypatch, lines=None, error=None):
             raise error
         return lines or []
 
-    monkeypatch.setattr(vita_ocr, "VitaOCRRuntime", lambda: SimpleNamespace(recognize=recognize))
+    monkeypatch.setattr(vita_ocr, "create_runtime", lambda: SimpleNamespace(recognize=recognize))
     return ocr_module.VitaOCR(get_furigana_sens_from_file=False)
 
 
@@ -23,7 +23,7 @@ def test_missing_install_is_optional_and_actionable(monkeypatch):
     def missing():
         raise OSError("VOCR download failed: check your connection and retry")
 
-    monkeypatch.setattr(vita_ocr, "VitaOCRRuntime", missing)
+    monkeypatch.setattr(vita_ocr, "create_runtime", missing)
     engine = ocr_module.VitaOCR()
     assert engine.available is False
     assert "retry" in engine.init_error
@@ -41,7 +41,7 @@ def test_engine_recovers_after_settings_retry_completes_installation(monkeypatch
             raise OSError("offline")
         return SimpleNamespace(recognize=lambda image: [])
 
-    monkeypatch.setattr(vita_ocr, "VitaOCRRuntime", create)
+    monkeypatch.setattr(vita_ocr, "create_runtime", create)
     engine = ocr_module.VitaOCR()
     assert engine.available is False
     monkeypatch.setattr(vita_model_manager, "get_model_status", lambda: {"available": True})
@@ -236,7 +236,7 @@ def test_model_switch_is_picked_up_by_existing_engine_and_tags_actual_scan(monke
         created.append(runtime)
         return runtime
 
-    monkeypatch.setattr(vita_ocr, "VitaOCRRuntime", create)
+    monkeypatch.setattr(vita_ocr, "create_runtime", create)
     engine = ocr_module.VitaOCR()
     image = Image.new("RGB", (100, 60))
     assert engine(image)[5]["gsm_model"]["size"] == "normal"

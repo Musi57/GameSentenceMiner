@@ -29,7 +29,7 @@ describe('Vita OCR model selector', () => {
     await act(async () => root.render(<I18nProvider><VitaOcrModel /></I18nProvider>));
     return container.querySelector('select')!;
   }
-  it('shows the confirmed choice and waits for a checked download before enabling changes', async () => {
+  it('shows the confirmed choice and waits for model validation before enabling changes', async () => {
     const select = await render();
     expect(select.value).toBe('normal');
     expect(select.options).toHaveLength(3);
@@ -40,7 +40,7 @@ describe('Vita OCR model selector', () => {
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
     expect(select.disabled).toBe(true);
-    expect(container.textContent).toContain('Downloading and checking');
+    expect(container.textContent).toContain('Checking VOCR model');
     expect(invoke).toHaveBeenLastCalledWith('ocr.vita-model', { model: 'large' });
     await act(async () => finish({ ...normal, model: 'large' }));
     expect(select.value).toBe('large');
@@ -63,6 +63,22 @@ describe('Vita OCR model selector', () => {
     invoke.mockResolvedValue({ ...normal, model: 'small' });
     await act(async () => { vi.advanceTimersByTime(3000); });
     expect(select.value).toBe('small');
+  });
+  it('quietly waits for the backend and loads the model on a later poll', async () => {
+    invoke.mockResolvedValue(null);
+    const select = await render();
+    expect(select.disabled).toBe(true);
+    expect(container.querySelector('[role=alert]')).toBeNull();
+    await act(async () => { vi.advanceTimersByTime(3000); });
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(invoke.mock.calls.every(call => Object.keys(call[1]).length === 0)).toBe(true);
+    expect(container.querySelector('[role=alert]')).toBeNull();
+
+    invoke.mockResolvedValue({ ...normal, model: 'large' });
+    await act(async () => { vi.advanceTimersByTime(3000); });
+    expect(select.disabled).toBe(false);
+    expect(select.value).toBe('large');
+    expect(container.querySelector('[role=alert]')).toBeNull();
   });
   it('ignores an old status response that arrives after a model switch', async () => {
     const select = await render();

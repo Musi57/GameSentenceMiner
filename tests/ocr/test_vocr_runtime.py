@@ -15,6 +15,7 @@ from GameSentenceMiner.ocr import vocr_runtime as installer
 
 @pytest.fixture
 def downloads(monkeypatch, tmp_path):
+    monkeypatch.setenv("GSM_VOCR_BACKEND", "c")
     monkeypatch.setattr(installer, "platform_key", lambda: "win32-x64")
     monkeypatch.setattr(vita_ocr, "get_install_directory", lambda: tmp_path)
     models = {size: (f"{size}.vocr", hashlib.sha256(size.encode()).hexdigest()) for size in vita_ocr.MODELS}

@@ -70,7 +70,7 @@ def test_desktop_scaling_maps_detector_coordinates_back_to_original_capture():
 
 def test_detector_returns_geometry_without_loading_recognizer(monkeypatch):
     finder, _ = fake_finder(boxes=[(10, 20, 30, 15, 0, 100, 0, 0, 0, 0)])
-    monkeypatch.setattr(module, "VOCRLineFinder", lambda: finder)
+    monkeypatch.setattr(module, "create_line_finder", lambda: finder)
     engine = ocr.VOCRTextDetector()
     result = engine(Image.new("RGB", (100, 60)))
     assert result[0] is True

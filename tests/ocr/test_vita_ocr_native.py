@@ -14,6 +14,11 @@ from PIL import Image, ImageDraw, ImageFont
 from GameSentenceMiner.ocr.vita_ocr import VitaOCRRuntime
 
 
+@pytest.fixture(autouse=True)
+def native_backend(monkeypatch):
+    monkeypatch.setenv("GSM_VOCR_BACKEND", "c")
+
+
 @pytest.fixture(scope="module")
 def runtime():
     directory = os.environ.get("GSM_VITA_OCR_TEST_DIR")

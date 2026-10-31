@@ -4269,7 +4269,7 @@ class VitaOCR:
     )
 
     def __init__(self, config=None, lang="ja", get_furigana_sens_from_file=True):
-        from GameSentenceMiner.ocr.vita_ocr import VitaOCRRuntime
+        from GameSentenceMiner.ocr.vita_ocr import create_runtime as VitaOCRRuntime
 
         self.available = False
         self.runtime = None
@@ -4304,7 +4304,7 @@ class VitaOCR:
         language=None,
     ):
         # Keep an in-flight read alive if an idle overlay releases its instance.
-        from GameSentenceMiner.ocr.vita_ocr import VitaOCRRuntime, read_installation
+        from GameSentenceMiner.ocr.vita_ocr import create_runtime as VitaOCRRuntime, read_model_selection
 
         with self._runtime_lock:
             if not self.available and self.init_error:
@@ -4319,7 +4319,7 @@ class VitaOCR:
             runtime = self.runtime
             if self.available and runtime is not None and hasattr(runtime, "model"):
                 try:
-                    if read_installation(runtime.directory)["model"] != runtime.model:
+                    if read_model_selection(runtime.directory) != runtime.model:
                         runtime = VitaOCRRuntime(runtime.directory)
                         self.runtime = runtime
                         logger.info(f"VOCR switched to {runtime.model}")
@@ -5823,7 +5823,7 @@ class VOCRTextDetector(BaseTextDetector):
     )
 
     def __init__(self, config=None, lang="ja", **kwargs):
-        from GameSentenceMiner.ocr.vocr_line_finder import VOCRLineFinder
+        from GameSentenceMiner.ocr.vocr_line_finder import create_line_finder as VOCRLineFinder
 
         self.finder = None
         self.available = False

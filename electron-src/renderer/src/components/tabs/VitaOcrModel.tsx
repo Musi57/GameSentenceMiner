@@ -16,7 +16,7 @@ export function VitaOcrModel() {
     if (changing.current) return;
     const started = generation.current;
     try {
-      const next = await invokeIpc<VitaModelStatus>("ocr.vita-model", {});
+      const next = await invokeIpc<VitaModelStatus | null>("ocr.vita-model", {});
       if (mounted.current && !changing.current && started === generation.current && next) {
         setStatus(next);
         setError(next.error || "");

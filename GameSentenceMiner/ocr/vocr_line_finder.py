@@ -22,6 +22,15 @@ SPOTTER_SHA256 = "e129d41adfa02c658a7d13d6f98064e6ab6ce9a2bc8c7a56da700a21357b5e
 SPOTTER_ATTRIBUTION = "SPOTTER-ATTRIBUTION.md"
 
 
+def create_line_finder(directory=None):
+    from GameSentenceMiner.ocr.vocr_onnx import ONNXLineFinder, selected_directory
+
+    assets = selected_directory()
+    if assets is not None:
+        return ONNXLineFinder(assets)
+    return VOCRLineFinder() if directory is None else VOCRLineFinder(directory)
+
+
 def spotter_library_name():
     return (
         "gsm_vocr_spotter.dll"
@@ -58,7 +67,9 @@ class VOCRLineFinder:
     def __init__(self, directory=None):
         from GameSentenceMiner.ocr.vocr_runtime import ensure_installation, get_runtime_directory
 
-        self.directory = Path(directory) if directory is not None else ensure_installation(detector_only=True)
+        self.directory = (
+            Path(directory) if directory is not None else ensure_installation(detector_only=True, backend="c")
+        )
         runtime_directory = get_runtime_directory(self.directory)
         self._lock = threading.Lock()
         self._arena = np.empty(0, dtype=np.uint8)

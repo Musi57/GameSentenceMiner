@@ -1,7 +1,7 @@
-"""Desktop binding for bee-san/vita-vn-ocr's pinned C99 runtime.
+"""VOCR model selection, bundled ONNX factory and opt-in native C99 binding.
 
-First use installs prebuilt libraries and models; importing this module never
-downloads, compiles, or loads native code. ABI declarations follow
+Importing this module never downloads, compiles, or loads native code.
+The C backend is retained for comparison. Its ABI declarations follow
 vocr.h, vocr_lines.h and vocr_charbox.h at UPSTREAM_REVISION.
 """
 
@@ -73,6 +73,37 @@ def write_installation(directory, model):
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+
+
+def read_model_selection(directory=None):
+    """Preserve the user's size across package upgrades, independently of C's ABI."""
+    directory = Path(directory) if directory is not None else get_install_directory()
+    try:
+        selection = json.loads((directory / "installation.json").read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return "normal"
+    model = selection.get("model") if isinstance(selection, dict) else None
+    if not isinstance(model, str) or model not in MODELS:
+        raise ValueError("VOCR model selection is invalid. Select a model size in GSM to repair it.")
+    return model
+
+
+def create_runtime(directory=None, *, model=None):
+    """Use bundled FP32 faithful ONNX on CPU, preserving the selected size.
+
+    The native class remains directly constructible for reproducible benchmarks.
+    GSM_VOCR_BACKEND=c explicitly opts into the original C backend.
+    """
+    from GameSentenceMiner.ocr.vocr_onnx import ONNXRuntime, selected_directory
+
+    assets = selected_directory()
+    if assets is not None:
+        installation = Path(directory) if directory is not None else get_install_directory()
+        tier = model if model is not None else read_model_selection(installation)
+        return ONNXRuntime(assets, model=tier, installation_directory=installation)
+    if model is None:
+        return VitaOCRRuntime() if directory is None else VitaOCRRuntime(directory)
+    return VitaOCRRuntime(directory, model=model)
 
 
 class _Image(C.Structure):
@@ -148,7 +179,7 @@ class VitaOCRRuntime:
 
         # Explicit directories let the installer validate a candidate before
         # publishing its selection, and keep source-build/native tests offline.
-        directory = Path(directory) if directory is not None else ensure_installation()
+        directory = Path(directory) if directory is not None else ensure_installation(backend="c")
         tier = read_installation(directory)["model"] if model is None else model
         if tier not in MODELS:
             raise ValueError("Choose a VOCR model: small, normal or large")

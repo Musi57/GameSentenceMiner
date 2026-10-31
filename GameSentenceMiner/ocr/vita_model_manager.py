@@ -10,6 +10,7 @@ from GameSentenceMiner.ocr.vita_ocr import (
     UPSTREAM_REVISION,
     get_install_directory,
     read_installation,
+    read_model_selection,
 )
 
 MODEL_TOPIC = "ocr.vita_model"
@@ -29,16 +30,30 @@ def get_model_status():
         "installed": [],
         "revision": UPSTREAM_REVISION,
         "release": RELEASE,
-        "supported": vocr_runtime.platform_key() in vocr_runtime.RUNTIME_ASSETS
-        or vocr_runtime.runtime_installed(directory),
+        "supported": True,
     }
     try:
-        installation = read_installation(directory)
-        status["model"] = installation["model"]
-        status["installed"] = [tier for tier, (name, digest) in MODELS.items() if _verified(directory / name, digest)]
-        status["available"] = vocr_runtime.runtime_installed(directory) and status["model"] in status["installed"]
-    except FileNotFoundError:
-        pass  # A fresh installation is prepared when the user selects VOCR.
+        from GameSentenceMiner.ocr.vocr_onnx import installed_models, selected_directory
+
+        assets = selected_directory()
+        if assets is not None:
+            status["backend"] = "onnx"
+            status["model"] = read_model_selection(directory)
+            status["installed"] = installed_models(assets)
+            status["available"] = status["model"] in status["installed"]
+        else:
+            status["backend"] = "c"
+            status["supported"] = (
+                vocr_runtime.platform_key() in vocr_runtime.RUNTIME_ASSETS or vocr_runtime.runtime_installed(directory)
+            )
+            try:
+                status["model"] = read_installation(directory)["model"]
+            except FileNotFoundError:
+                pass  # Explicit native backend installs on first use.
+            status["installed"] = [
+                tier for tier, (name, digest) in MODELS.items() if _verified(directory / name, digest)
+            ]
+            status["available"] = vocr_runtime.runtime_installed(directory) and status["model"] in status["installed"]
     except (OSError, ValueError, TypeError) as error:
         status["error"] = str(error)
     status["busy"] = status["busy"] or vocr_runtime.is_installing()

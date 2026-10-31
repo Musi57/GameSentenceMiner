@@ -1,4 +1,4 @@
-"""Install pinned prebuilt VOCR libraries and models on first use. Never compiles."""
+"""Validate bundled VOCR models; download native assets only for the opt-in C backend."""
 
 import ctypes
 import hashlib
@@ -217,16 +217,28 @@ def validate_installation(directory, model, *, detector_only=False):
             raise RuntimeError(f"VOCR detector could not load: {runtime.finder.fallback_reason}")
 
 
-def ensure_installation(directory=None, *, model=None, detector_only=False):
+def ensure_installation(directory=None, *, model=None, detector_only=False, backend=None):
+    from GameSentenceMiner.ocr.vocr_onnx import ONNXLineFinder, ONNXRuntime, selected_directory
+
     directory = Path(directory) if directory is not None else vita_ocr.get_install_directory()
     if model is not None and (not isinstance(model, str) or model not in vita_ocr.MODELS):
         raise ValueError("Choose a VOCR model: small, normal or large")
+    assets = selected_directory(backend=backend)
     directory.mkdir(parents=True, exist_ok=True)
     with _install_lock, _process_lock(directory):
         try:
             previous = vita_ocr.read_installation(directory)
         except (OSError, ValueError, TypeError):
             previous = None
+        if assets is not None:
+            if detector_only:
+                ONNXLineFinder(assets)
+            else:
+                selected = model or vita_ocr.read_model_selection(directory)
+                ONNXRuntime(assets, model=selected, installation_directory=directory)
+                if previous is None or previous["model"] != selected:
+                    vita_ocr.write_installation(directory, selected)
+            return directory
         selected = model or (previous["model"] if previous else "normal")
         _install_runtime(directory)
         base_url = f"https://github.com/bee-san/vita-vn-ocr/releases/download/{vita_ocr.RELEASE}"

@@ -188,7 +188,11 @@ export const SETTINGS_CATALOG: SettingsCatalogEntry[] = [
       "develop branch",
       "stable",
       "latest version",
-      "update channel"
+        "update channel",
+        "obs",
+        "obs update",
+        "replay buffer",
+        "rollback"
     ],
     shortDescription: "Control update checks and whether beta builds are offered.",
     openAction: OPEN_CURRENT_TAB,

@@ -12,6 +12,7 @@ from GameSentenceMiner.ocr.vocr_line_finder import spotter_library_name
 
 @pytest.fixture
 def installation(monkeypatch, tmp_path):
+    monkeypatch.setenv("GSM_VOCR_BACKEND", "c")
     monkeypatch.setattr(vita_ocr, "get_install_directory", lambda: tmp_path)
     monkeypatch.setattr(manager, "get_install_directory", lambda: tmp_path)
     models = {tier: (f"{tier}.vocr", hashlib.sha256(tier.encode()).hexdigest()) for tier in vita_ocr.MODELS}

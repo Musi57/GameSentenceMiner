@@ -18,4 +18,20 @@ describe('Vita OCR model settings', () => {
         await expect(request({ model: 'large' })).rejects.toThrow('not connected');
         expect(bus.request).not.toHaveBeenCalled();
     });
+    it('silently skips status checks until the backend connects', async () => {
+        const status = { model: 'large', available: true, busy: false, installed: ['large'] };
+        const bus = { isConnected: vi.fn(() => false), request: vi.fn(async () => status) };
+        const request = createVitaModelService(bus);
+        await expect(request()).resolves.toBeNull();
+        await expect(request({})).resolves.toBeNull();
+        expect(bus.request).not.toHaveBeenCalled();
+
+        bus.isConnected.mockReturnValue(true);
+        await expect(request()).resolves.toEqual(status);
+        expect(bus.request).toHaveBeenCalledExactlyOnceWith('backend', 'ocr.vita_model', {}, 5000);
+    });
+    it('still reports backend request failures when connected', async () => {
+        const bus = { isConnected: () => true, request: vi.fn().mockRejectedValue(new Error('Model status failed')) };
+        await expect(createVitaModelService(bus)()).rejects.toThrow('Model status failed');
+    });
 });

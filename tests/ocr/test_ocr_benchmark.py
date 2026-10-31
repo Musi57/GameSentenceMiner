@@ -139,7 +139,7 @@ def test_shared_ingress_records_and_rejects_auto_before_normal_pipeline(monkeypa
     recorder = OCRBenchmarkRecorder(tmp_path)
     recorder.set_enabled(True)
     monkeypatch.setattr(benchmark, "recorder", recorder)
-    monkeypatch.setattr(gametext, "is_message_rate_limited", lambda _source: pytest.fail("Auto OCR reached intake"))
+    monkeypatch.setattr(gametext, "get_authoritative_text_runtime", lambda: pytest.fail("Auto OCR reached intake"))
     ack = gametext.ingest_text_v2_payload(
         {"text": "台詞", "source": "ocr", "observationId": "ocr-1", "ocr_engine": "vitaocr"}
     )
@@ -156,7 +156,6 @@ def test_shared_ingress_still_accepts_hook_and_manual_sources(monkeypatch, tmp_p
     recorder = OCRBenchmarkRecorder(tmp_path)
     recorder.set_enabled(True)
     monkeypatch.setattr(benchmark, "recorder", recorder)
-    monkeypatch.setattr(gametext, "is_message_rate_limited", lambda _source: False)
     observed = []
 
     def ingest(observation):
