@@ -1280,13 +1280,13 @@
     },
     "vitaModel": {
       "label": "VOCRのモデルサイズ",
-      "small": "Small · 0.82 MB",
-      "normal": "Normal · 1.19 MB（既定）",
-      "large": "Large · 2.48 MB",
-      "help": "すべてのプロファイルのメインOCRとオーバーレイOCRで共有されます。初回使用時にランタイムとモデルを自動ダウンロードします。ビルドツールは不要です。モデルの重みは非商用利用限定です。",
-      "preparing": "VOCRのランタイムとモデルをダウンロード・確認中…",
+      "small": "Small · 2.98 MB",
+      "normal": "Normal · 4.39 MB（既定）",
+      "large": "Large · 9.40 MB",
+      "help": "すべてのプロファイルのメインOCRとオーバーレイOCRで共有されます。すべてのモデルサイズがGSMに同梱されており、オフラインで使用できます。モデルの重みは非商用利用限定です。",
+      "preparing": "VOCRのモデルを確認中…",
       "active": "選択中のモデル：{model}。次のスキャンから使用します。",
-      "unavailable": "VOCRのランタイムとモデルは自動ダウンロードされます。初回セットアップにはインターネット接続が必要です。",
+      "unavailable": "VOCRの準備ができていません。同梱のモデルファイルが見つからないか破損している場合は、GSMを再インストールまたは更新してください。",
       "error": "モデル設定：{error}",
       "refresh": "再試行"
     },
@@ -2101,5 +2101,31 @@
     "added": "{game}で文章を除外しました。今後、一致するテキストはブロックされます。",
     "removed": "{game}の文章の除外を解除しました。",
     "excluded": "除外済み"
+  },
+  "obsUpdates": {
+    "title": "OBS Studio",
+    "description": "GSM がインストールしたポータブル版 OBS を管理します。更新時は録画と配信の終了を待ち、OBS を再起動します。",
+    "unknown": "未確認",
+    "custom": "GSM が更新できるのは付属のポータブル版 OBS のみです。このプロファイルは別の OBS または接続先を使用しています。",
+    "unsupported": "macOS と Linux ではシステムのインストーラーで OBS を管理してください。",
+    "pinned": "GSM 承認バージョン: {version}",
+    "target": "最新の安定版: {version}",
+    "automatic": "起動時に OBS を自動更新する",
+    "automaticHelp": "初期設定はオフです。起動時に一度確認し、GSM のバージョン方針に従います。録画・配信中は延期し、更新の通知は表示しません。",
+    "update": "OBS を更新",
+    "updateTo": "{version} に更新",
+    "rollback": "OBS {version} に戻す",
+    "backupHelp": "以前の OBS と設定を復元用に保存します。復元すると以前の設定に戻り、OBS の自動更新がオフになります。",
+    "progress": "OBS のダウンロード状況",
+    "phase": {
+      "idle": "準備完了",
+      "checking": "OBS を確認中…",
+      "downloading": "OBS をダウンロードして検証中…",
+      "extracting": "OBS を準備中…",
+      "stopping": "OBS を安全に終了中…",
+      "installing": "OBS をインストール中…",
+      "validating": "更新後の OBS 接続を確認中…",
+      "error": "OBS の更新に失敗しました"
+    }
   }
 }

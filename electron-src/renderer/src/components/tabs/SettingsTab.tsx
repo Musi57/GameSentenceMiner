@@ -21,6 +21,7 @@ import { applyTheme, DEFAULT_THEME, THEME_GROUPS } from "../../lib/theme";
 import { setSeasonalEffectsDisabled } from "../../lib/seasonal";
 import { GpuSettings } from "./GpuSettings";
 import { PythonSettings } from "./PythonSettings";
+import { ObsUpdates } from "./ObsUpdates";
 import {
   SETTINGS_BACKUP_CATEGORY_IDS,
   type SettingsBackupCategoryId,
@@ -1655,6 +1656,7 @@ export function SettingsTab({ active, onRequestConsole }: SettingsTabProps) {
                       </button>
                     </div>
                   </div>
+                  <ObsUpdates active={active && workspaceView === "updates"} />
                 </section>
               </div>
             </section>

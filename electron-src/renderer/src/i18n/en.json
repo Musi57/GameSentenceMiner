@@ -1302,13 +1302,13 @@
     },
     "vitaModel": {
       "label": "VOCR model size",
-      "small": "Small · 0.82 MB",
-      "normal": "Normal · 1.19 MB (default)",
-      "large": "Large · 2.48 MB",
-      "help": "Shared by main and overlay OCR across all profiles. The runtime and model download automatically on first use; no build tools are needed. Model weights are for non-commercial use.",
-      "preparing": "Downloading and checking VOCR runtime and model…",
+      "small": "Small · 2.98 MB",
+      "normal": "Normal · 4.39 MB (default)",
+      "large": "Large · 9.40 MB",
+      "help": "Shared by main and overlay OCR across all profiles. All model sizes are included with GSM and work offline. Model weights are for non-commercial use.",
+      "preparing": "Checking VOCR model…",
       "active": "Selected model: {model}. Ready for the next scan.",
-      "unavailable": "VOCR will download its runtime and model automatically. An internet connection is needed for the first setup.",
+      "unavailable": "VOCR is not ready. If the bundled model files are missing or damaged, reinstall or update GSM.",
       "error": "Model settings: {error}",
       "refresh": "Retry"
     },
@@ -2190,5 +2190,31 @@
     "added": "Sentence excluded for {game}. Future matches will be blocked.",
     "removed": "Sentence exclusion removed for {game}.",
     "excluded": "Excluded"
+  },
+  "obsUpdates": {
+    "title": "OBS Studio",
+    "description": "Manage the portable OBS installed by GSM. Updates restart OBS and wait until recording and streaming have stopped.",
+    "unknown": "Not checked",
+    "custom": "GSM updates only its own portable OBS. This profile uses a custom OBS installation or connection.",
+    "unsupported": "Manage OBS through your system installer on macOS and Linux.",
+    "pinned": "GSM-approved version: {version}",
+    "target": "Latest stable version: {version}",
+    "automatic": "Automatically update OBS at startup",
+    "automaticHelp": "Off by default. Checks once at startup, follows GSM’s version policy, and defers while recording or streaming. No update reminders.",
+    "update": "Update OBS",
+    "updateTo": "Update to {version}",
+    "rollback": "Restore OBS {version}",
+    "backupHelp": "The previous OBS and its settings are kept for rollback. Restoring also restores those older settings and turns automatic OBS updates off.",
+    "progress": "OBS download progress",
+    "phase": {
+      "idle": "Ready",
+      "checking": "Checking OBS…",
+      "downloading": "Downloading and verifying OBS…",
+      "extracting": "Preparing OBS…",
+      "stopping": "Closing OBS cleanly…",
+      "installing": "Installing OBS…",
+      "validating": "Checking the updated OBS connection…",
+      "error": "OBS update failed"
+    }
   }
 }

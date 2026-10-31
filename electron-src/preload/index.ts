@@ -39,6 +39,7 @@ const sendExactChannels = new Set<string>([
 ]);
 
 const onExactChannels = new Set<string>([
+  "obs.runtime.progress",
   "settings.seasonalEffectsChanged",
   "installing",
   "install-session.snapshot",

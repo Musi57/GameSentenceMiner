@@ -179,6 +179,7 @@ interface StoreConfig {
     startConsoleMinimized: boolean;
     autoUpdateElectron: boolean;
     autoUpdateGSMApp: boolean;
+    autoUpdateOBS: boolean;
     autoUpdateTexthook: boolean;
     customPythonPackage: string;
     pythonExtras: string[];
@@ -246,6 +247,7 @@ export const store = new Store<StoreConfig>({
         startConsoleMinimized: false,
         autoUpdateElectron: false,
         autoUpdateGSMApp: false,
+        autoUpdateOBS: false,
         autoUpdateTexthook: true,
         VN: {
             vns: [],

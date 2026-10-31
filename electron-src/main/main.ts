@@ -86,7 +86,7 @@ import { getSeasonalEvent, resolveSeasonalIconStyle } from '../shared/seasonal.j
 import { launchSteamGameID } from './ui/steam.js';
 import { bus, getBroker, getBusConnectInfo, startBus, stopBus } from './runtime/bus_client.js';
 import { AGENT_RESTART_ARG, agentRelaunchArgs, startAgentControl } from './services/agent_control.js';
-import { setLaunchBlockedCheck, stopManagedProcesses } from './runtime/process_supervisor.js';
+import { getProcessManager, setLaunchBlockedCheck, stopManagedProcesses } from './runtime/process_supervisor.js';
 import { terminateProcessTree, waitForProcessExit } from './runtime/process_tree.js';
 import { getWindowsSystemExecutable } from './runtime/windows_tools.js';
 import { submitTextObservation } from './runtime/text_ingress.js';
@@ -97,6 +97,8 @@ import {
 import {
     closeOBSFromElectron,
     ensureObsInstalledAndLaunch,
+    isObsRuntimeUpdateInProgress,
+    waitForObsRuntimeUpdate,
     getCurrentOBSSceneCollectionName,
     getCurrentScene,
     getOBSScenesForSceneSwitcher,
@@ -123,7 +125,7 @@ import {
     stopWindowTransparencyTool,
     window_transparency_process,
 } from './ui/settings.js';
-import { startOCR, stopOCR } from './ui/ocr.js';
+import { startOCR, startManualOCR, stopOCR, getOCRRuntimeState } from './ui/ocr.js';
 import * as fs from 'node:fs';
 import {
     runOverlay,
@@ -806,6 +808,7 @@ const updateManager = new UpdateManager({
     getPythonPath: () => pythonPath,
     closeAllPythonProcesses: async () => closeAllPythonProcesses(),
     closeAllForAppUpdate: async () => {
+        await waitForObsRuntimeUpdate();
         await closeAllPythonProcesses();
         const { shutdownTextHookForUpdate } = await import('./ui/texthook.js');
         await shutdownTextHookForUpdate();
@@ -825,10 +828,11 @@ updateManager.setAppUpdateStatusListener((status) => {
 });
 
 export function isPythonLaunchBlockedByUpdate(): boolean {
-    return updateManager.anyUpdateInProgress;
+    return updateManager.anyUpdateInProgress || isObsRuntimeUpdateInProgress();
 }
 
 export async function waitForPythonLaunchReadiness(context: string): Promise<void> {
+    if (isObsRuntimeUpdateInProgress()) await waitForObsRuntimeUpdate();
     if (!updateManager.anyUpdateInProgress) {
         return;
     }
@@ -843,6 +847,7 @@ async function runUpdateChecks(
     force: boolean = false,
     forceDev: boolean = false
 ): Promise<void> {
+    if (isObsRuntimeUpdateInProgress()) await waitForObsRuntimeUpdate();
     await updateManager.runUpdateChecks(
         shouldRestart,
         force,
@@ -854,6 +859,7 @@ async function updateGSM(
     shouldRestart: boolean = false,
     force: boolean = false
 ): Promise<void> {
+    if (isObsRuntimeUpdateInProgress()) await waitForObsRuntimeUpdate();
     await updateManager.updateGSM(shouldRestart, force);
 }
 
@@ -866,6 +872,7 @@ async function checkForAvailableUpdates(): Promise<UpdateStatusSnapshot> {
 }
 
 async function updateAvailableTargets(): Promise<UpdateStatusSnapshot> {
+    if (isObsRuntimeUpdateInProgress()) await waitForObsRuntimeUpdate();
     return await updateManager.updateAvailableTargets(true);
 }
 
@@ -1626,7 +1633,7 @@ function initializeAgentControl(): void {
             getBlockedReason: () => {
                 if (isQuitting) return 'GSM is shutting down.';
                 if (restartingGSM) return 'The Python backend is already restarting.';
-                if (isPythonLaunchBlockedByUpdate() || installSessionManager.getActiveSnapshot()?.status === 'running') {
+                if (isPythonLaunchBlockedByUpdate() || isObsRuntimeUpdateInProgress() || installSessionManager.getActiveSnapshot()?.status === 'running') {
                     return 'An update or installation is in progress.';
                 }
                 if (process.env.VITE_DEV_SERVER_URL) {
@@ -1842,10 +1849,11 @@ async function createWindow() {
                 { includePrereleases: status.channel === 'beta' }
             );
         },
-        installAppUpdate: (version) => {
+        installAppUpdate: async (version) => {
             if (devUpdatePreview.getChangelog()) {
                 throw new Error('Installation is disabled for the development update preview.');
             }
+            if (isObsRuntimeUpdateInProgress()) await waitForObsRuntimeUpdate();
             return updateManager.installAppUpdate(version);
         },
         showUpdateChangelogPreview,
@@ -3147,6 +3155,36 @@ async function waitForChildProcessExit(
     });
 }
 
+/** Release capture clients before OBS unloads its WebSocket server. */
+export async function suspendObsClientsForUpdate(): Promise<() => Promise<void>> {
+    const backendWasRunning = isChildProcessActive(pyProc);
+    const ocr = getOCRRuntimeState();
+    const resume = async () => {
+        if (isQuitting) return;
+        if (backendWasRunning) {
+            await new Promise<void>((resolve, reject) => {
+                void ensureAndRunGSM(pythonPath, 1, { onSpawn: resolve }).catch(reject);
+            });
+        }
+        if (ocr.isRunning) {
+            const options = { source: ocr.source ?? 'user' as const, restartReason: 'OBS updated' };
+            if (ocr.mode === 'manual') startManualOCR(options);
+            else await startOCR({ ...options, promptForAreaSelection: false });
+        }
+    };
+    try {
+        if (ocr.isRunning) {
+            stopOCR({ reason: 'managed-obs-update' });
+            await getProcessManager().stop('ocr');
+        }
+        if (backendWasRunning) await closeGSM();
+        return resume;
+    } catch (error) {
+        await resume();
+        throw error;
+    }
+}
+
 async function closeGSM(): Promise<void> {
     if (gsmStopPromise) {
         return gsmStopPromise;
@@ -3238,6 +3276,7 @@ export async function stopScripts(): Promise<void> {
 }
 
 async function runQuit(relaunchArgs?: string[]): Promise<void> {
+    await waitForObsRuntimeUpdate();
     hideUserFacingShutdownSurfaces();
     stopGamePrivilegeChecks();
     autoLauncher.stopPolling();
@@ -3294,6 +3333,7 @@ export async function quit(relaunchArgs?: string[]): Promise<void> {
 // Stop everything that holds handles in the data dir, without quitting the app (used before a
 // data-folder relocation). Mirrors quit() minus app.quit().
 async function stopAllChildrenForRelocation(): Promise<void> {
+    await waitForObsRuntimeUpdate();
     await stopGameBackgroundHooks();
     autoLauncher.stopPolling();
     shutdownWindowSceneSwitcher();
