@@ -181,6 +181,40 @@ function findChoice(data, expected, { allowFuzzy = true, requireMenu = false } =
 
 const isSaveControl = line => /セーブ|ロード|上書き|保存先|^(?:(?:quick|auto)?(?:save|load)(?:game|data|slot)?|overwrite)$/iu.test(line.text);
 const LOOK_AHEAD_CHOICES = 3;
+const HOOK_MENU_MAX_AGE_MS = 10000;
+
+function findHookedChoice(lines, expected, recentText, now) {
+  // Some games dim unselected answers enough that OCR reads only the selected
+  // option. Corroborate a compact hook batch with an exact, isolated option in
+  // the fresh scan. Never use dialogue-position text or an unanchored substring.
+  if (!recentText || now < recentText.at || now - recentText.at > HOOK_MENU_MAX_AGE_MS) return null;
+  const { text, options } = recentText;
+  const target = normalizeChoice(expected);
+  if (target.length < 6 || options.some(option => isSaveControl({ text: option }))
+    || lines.some(line => isSaveControl(line) && line.y3 <= 0.74)) return null;
+  const anchors = lines.filter(line => line.isolated && line.text.length >= 6 && line.text.length <= 100
+    && line.y3 <= 0.72 && Math.abs(line.center - 0.5) <= 0.3
+    && (options.length > 1 ? options.includes(line.text) : text.startsWith(line.text)));
+  if (!anchors.length) return null;
+  for (const anchor of anchors) {
+    let menuOptions;
+    if (options.length > 1) {
+      if (options.length < 2 || options.length > 6 || options.some(option => option.length < 2 || option.length > 100)
+        || options.filter(option => option === target).length !== 1) continue;
+      menuOptions = options;
+    } else {
+      // Without separators, only the visible first option and a complete final
+      // answer have known boundaries. Do not guess where a middle answer ends.
+      const tail = text.slice(anchor.text.length);
+      if (tail.length < 6 || tail.length > 100
+        || target !== anchor.text && (!tail.endsWith(target) || tail.indexOf(target) !== tail.lastIndexOf(target))) continue;
+      menuOptions = [anchor.text, target];
+    }
+    return { text: target, observed: target, exact: true, menu: true,
+      options: [...new Set(menuOptions)], hookText: text };
+  }
+  return null;
+}
 
 class GuideTracker {
   constructor(steps, index = 0) {
@@ -206,7 +240,8 @@ class GuideTracker {
     return this.steps[next]?.kind === 'choice' ? next : index;
   }
   get rememberedChoice() { return this.detected && !this.armed; }
-  resetDetection() {
+  resetDetection({ preserveText = false } = {}) {
+    if (!preserveText) this.recentText = null;
     this.detected = false;
     this.armed = null;
     this.blockedOptions = null;
@@ -225,27 +260,37 @@ class GuideTracker {
       this.suspendedOptions = this.armed.options;
     }
     this.armed = null;
+    this.recentText = null;
     this.pendingLineId = null;
     this.pendingAhead = null;
   }
-  findAheadChoice(data, lines) {
+  findAheadChoice(data, lines, recentText = null, now = Date.now()) {
     // An option still present in the current menu, or a save confirmation, must
     // not be interpreted as a later guide step merely because its text matches.
     if (lines.some(line => line.text === normalizeChoice(this.current.text) || isSaveControl(line) && line.y3 <= 0.74)) return null;
     const matches = [];
+    const candidates = [this.current];
     const limit = this.saveInstructions.length ? 1 : LOOK_AHEAD_CHOICES;
     let index = this.index + 1;
     for (let count = 0; count < limit && index < this.steps.length; count += 1) {
       const carriesSave = this.steps[index].kind === 'save';
       if (carriesSave) index = this.choiceAfterSave(index);
       if (this.steps[index]?.kind !== 'choice') break;
-      const match = findChoice(data, this.steps[index].text, { allowFuzzy: false, requireMenu: true });
+      candidates.push(this.steps[index]);
+      const match = findChoice(data, this.steps[index].text, { allowFuzzy: false, requireMenu: true })
+        || findHookedChoice(lines, this.steps[index].text, recentText, now);
       if (match) matches.push({ index, match });
       // The save can be shown with its next choice, but never skipped past it.
       if (carriesSave) break;
       index += 1;
     }
-    return matches.length === 1 ? matches[0] : null;
+    if (matches.length !== 1) return null;
+    const result = matches[0];
+    // A batched hook may contain multiple route answers from the same menu,
+    // including a dim current answer. That cannot prove a later guide position.
+    if (result.match.hookText && candidates.some(step => step !== this.steps[result.index]
+      && result.match.hookText.includes(normalizeChoice(step.text)))) return null;
+    return result;
   }
   jump(index) {
     if (!Number.isInteger(index) || index < 0 || index > this.steps.length) throw new Error('Choose a step within this route.');
@@ -262,8 +307,11 @@ class GuideTracker {
   observe(message, now = Date.now(), autoAdvance = true) {
     if (!this.current || this.current.kind !== 'choice') return;
     if (message?.type === 'game_text') {
-      if (typeof message.text !== 'string' || message.text.length > 20000) return;
+      if (typeof message.text !== 'string' || message.text.length > 20000) { this.recentText = null; return; }
       const options = message.text.split(/\r?\n/u).map(normalizeChoice).filter(Boolean);
+      const text = options.join('');
+      if (!text || text.length > 300 || options.length > 6) this.recentText = null;
+      else this.recentText = { text, options, at: text === this.recentText?.text ? this.recentText.at : now };
       if (!options.length) return;
       if (this.blockedOptions) {
         if (options.some(text => containsOption(this.blockedOptions, text))) return;
@@ -286,7 +334,9 @@ class GuideTracker {
     }
     if (message?.type === 'overlay_clear') {
       this.pendingAhead = null;
-      if (!message.line_id) this.resetDetection();
+      // Skip recovery clears old coordinates before scanning, but the latest
+      // hook batch can still corroborate that fresh scan within its short TTL.
+      if (!message.line_id) this.resetDetection({ preserveText: true });
       else {
         // The backend clears boxes before scanning each new text line. Hide the
         // old hint, but keep its evidence until that scan confirms the menu left.
@@ -327,13 +377,15 @@ class GuideTracker {
       else return;
     }
     let match = findChoice(message.data, this.current.text);
+    const recentText = message.is_final === true && !revalidated ? this.recentText : null;
+    if (!match?.menu) match = findHookedChoice(lines, this.current.text, recentText, now) || match;
     if (match && !match.exact && this.steps.some(step => step.kind === 'choice'
       && normalizeChoice(step.text) === match.observed)) match = null;
     const previousPresence = this.armed?.presenceId || this.suspendedPresenceId;
     const previousLine = this.armed?.lineId || this.suspendedLineId;
     let stableAhead = false;
     if (!match && autoAdvance && !revalidated && (!previousPresence || previousPresence !== message.presence_id)) {
-      const ahead = this.findAheadChoice(message.data, lines);
+      const ahead = this.findAheadChoice(message.data, lines, recentText, now);
       if (ahead && !containsOption(this.armed?.options || this.suspendedOptions, ahead.match.text)) {
         // While skipping, OCR can keep retrying an old hooked sentence for
         // several seconds, even as another menu appears under the same line ID.

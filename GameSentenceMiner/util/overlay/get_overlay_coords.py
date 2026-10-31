@@ -357,6 +357,7 @@ class OverlayProcessor:
         self.ss_width = 0
         self.ss_height = 0
         self._current_sequence = 0
+        self._skip_scan_suspended = False
         self.calculated_width_scale_factor = 1.0
         self.calculated_height_scale_factor = 1.0
         self.obs_width = None
@@ -1562,7 +1563,11 @@ class OverlayProcessor:
             ):
                 scan_time = previous.time
             gsm_state.last_overlay_scan_line = _build_transient_output_line(text, scan_time, source=TextSource.OVERLAY)
-            if get_overlay_config().inject_scanned_lines:
+            if source == TextSource.SKIP_RECOVERY:
+                from GameSentenceMiner.gametext import recover_skip_landing
+
+                recover_skip_landing(text, gsm_state.current_game or "")
+            if get_overlay_config().inject_scanned_lines and source != TextSource.SKIP_RECOVERY:
                 from GameSentenceMiner.gametext import add_line_to_text_log
 
                 # skip_overlay avoids re-triggering this scan; OVERLAY source carries best-guess audio padding.
@@ -1578,6 +1583,57 @@ class OverlayProcessor:
         except Exception as e:
             logger.debug(f"Failed to record overlay scan: {e}")
 
+    async def set_skip_scan_state(self, active: bool) -> None:
+        self._skip_scan_suspended = active
+        self._cancel_last_sent_presence_monitor()
+        if self.current_task and not self.current_task.done():
+            self.current_task.cancel()
+        await send_overlay_clear()
+
+    async def _wait_for_skip_landing(self, sequence: int | None) -> bool:
+        """Cheap bounded image checks; no hooked sentence or OCR required."""
+        from GameSentenceMiner.util.image_stability import ImageStabilityGate
+
+        gate = ImageStabilityGate(similarity_threshold=0.97, required_ocr_calls=2)
+        scene = gsm_state.current_game
+        for _ in range(8):
+            if (
+                self._skip_scan_suspended
+                or scene != gsm_state.current_game
+                or sequence is not None
+                and sequence != self._current_sequence
+            ):
+                return False
+            try:
+                frame, *_ = self._get_screenshot_and_offset()
+                if frame is not None:
+                    frame = frame.copy()
+                    frame.thumbnail((480, 270))
+                    result = gate.observe(frame)
+                    if result.stable_frames >= 3:
+                        return True
+                    gate.update_reference(frame, {"crop_coords": (0, 0, frame.width, frame.height)})
+            except Exception as error:  # noqa: BLE001 - optional visual evidence must not prevent recovery.
+                logger.debug("Skip recovery stability check unavailable: {}", error)
+                break
+            await asyncio.sleep(0.15)
+        # Animated backgrounds must not starve a stationary dialogue or choice.
+        return (
+            not self._skip_scan_suspended
+            and scene == gsm_state.current_game
+            and (sequence is None or sequence == self._current_sequence)
+        )
+
+    async def recover_after_skip(self, *, sequence: int) -> None:
+        task = asyncio.current_task()
+        self._skip_recovery_task = task
+        try:
+            if await self._wait_for_skip_landing(sequence):
+                await self.find_box_and_send_to_overlay(sequence=sequence, source=TextSource.SKIP_RECOVERY)
+        finally:
+            if getattr(self, "_skip_recovery_task", None) is task:
+                self._skip_recovery_task = None
+
     async def find_box_and_send_to_overlay(
         self,
         line: "GameLine" = None,
@@ -1589,6 +1645,10 @@ class OverlayProcessor:
         source: TextSource = None,
     ):
         """Sends the detected text boxes to the overlay via WebSocket."""
+        if getattr(self, "_skip_scan_suspended", False) and not OverlayProcessor._is_manual_overlay_source(source):
+            return
+        if line is None and source is None and getattr(self, "_skip_recovery_task", None) is not None:
+            return
         if source == TextSource.HOTKEY and not get_overlay_capture_state(self.window_monitor)["available"]:
             logger.debug("Ignoring manual overlay scan without a valid capture target.")
             return
@@ -3718,6 +3778,8 @@ class OverlayProcessor:
 
     async def reprocess_and_send_last_results(self):
         """Reprocesses the last known raw OCR results with updated window coordinates."""
+        if getattr(self, "_skip_scan_suspended", False) or getattr(self, "_skip_recovery_task", None) is not None:
+            return
         if not self.last_raw_results or not self.last_raw_source:
             logger.debug("No previous OCR results to reprocess.")
             return

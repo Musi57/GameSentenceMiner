@@ -388,6 +388,87 @@ test('a unique final menu within the next three choices recovers missed progress
   assert.equal(guide.index, 0, 'recovery must remain bounded');
 });
 
+test('a post-skip scan can corroborate hooked options when dim answers are missing from OCR', () => {
+  const options = ['サクヤを手伝う', '家の掃除をする', '薪の調達に行く'];
+  for (const separator of ['\n', '']) {
+    const guide = tracker(['帰らない', '血を飲ませる', 'セーブ23', options[2], '進む']);
+    guide.observe({ type: 'game_text', text: options.join(separator) }, 1000);
+    assert.equal(guide.index, 0, 'hooked text alone must not catch up');
+    guide.observe({ type: 'overlay_clear' }, 2500);
+    const scan = frame([line(options[0], .27), line('ここから町まで何往復もするのは面倒だし', .8)], { presence_id: 'landing' });
+    guide.observe({ ...scan, is_final: false }, 3000);
+    assert.equal(guide.index, 0);
+    guide.observe(scan, 4500);
+    assert.equal(guide.index, 3);
+    assert.equal(guide.detected, true);
+    assert.equal(guide.armed.menu, true);
+    assert.equal(guide.recoveredFrom, 0);
+    assert.deepEqual(guide.saveInstructions, ['セーブ23']);
+    guide.observe(scan, 5000);
+    assert.equal(guide.index, 3, 'the visible anchor still belongs to this menu');
+    guide.back();
+    assert.equal(guide.index, 0);
+  }
+});
+
+test('corroborated hook menus support the current answer and separated middle options', () => {
+  const options = ['サクヤを手伝う', '家の掃除をする', '薪の調達に行く'];
+  for (const target of options) {
+    const guide = tracker([target, '進む']);
+    guide.observe({ type: 'game_text', text: options.join('\n') }, 1000);
+    guide.observe(frame([line(options[0], .27), line('ここから町まで何往復もするのは面倒だし', .8)]), 4000);
+    assert.equal(guide.index, 0);
+    assert.equal(guide.detected, true);
+    assert.equal(guide.armed.source, 'ocr');
+    assert.equal(guide.armed.stable, true);
+  }
+});
+
+test('corroborated menu catch-up still looks exactly three choices ahead and rejects other route answers in the batch', () => {
+  const text = 'サクヤを手伝う家の掃除をする薪の調達に行く';
+  for (const distance of [1, 2, 3, 4]) {
+    const choices = ['帰らない', 'もう少し待ってみる', 'ここで一休みする', 'ひとまず引き返す'];
+    choices.splice(distance, 0, '薪の調達に行く');
+    const guide = tracker(choices);
+    guide.observe({ type: 'game_text', text }, 1000);
+    guide.observe(frame([line('サクヤを手伝う', .27)]), 4000);
+    assert.equal(guide.index, distance <= 3 ? distance : 0);
+  }
+  for (const choices of [
+    ['家の掃除をする', '薪の調達に行く'],
+    ['帰らない', '家の掃除をする', '薪の調達に行く'],
+  ]) {
+    const guide = tracker(choices);
+    guide.observe({ type: 'game_text', text }, 1000);
+    guide.observe(frame([line('サクヤを手伝う', .27)]), 4000);
+    assert.equal(guide.index, 0, 'a dim current or alternative route answer makes catch-up ambiguous');
+  }
+});
+
+test('hook corroboration rejects stale batches, dialogue, partial scans and missing option boundaries', () => {
+  const anchor = 'サクヤを手伝う';
+  const target = '薪の調達に行く';
+  const text = `${anchor}家の掃除をする${target}`;
+  for (const scenario of ['expired', 'repeated-old', 'new-text', 'reset', 'suspended', 'dialogue', 'partial', 'supplemental', 'prefix', 'suffix', 'fuzzy', 'ambiguous', 'far', 'manual', 'load', 'save']) {
+    const steps = scenario === 'ambiguous' ? ['帰らない', target, target]
+      : scenario === 'far' ? ['帰らない', '進む', '待つ', '寝る', target]
+      : scenario === 'load' ? ['帰らない', 'セーブ23にロード', target]
+      : scenario === 'save' ? ['帰らない', 'セーブ23', '進む', target]
+      : ['帰らない', target];
+    const guide = tracker(steps);
+    guide.observe({ type: 'game_text', text: scenario === 'prefix' ? `さっきは${text}` : scenario === 'suffix' ? `${text}と思った` : text }, 1000);
+    if (scenario === 'reset') guide.resetDetection();
+    if (scenario === 'suspended') guide.suspendDetection();
+    if (scenario === 'new-text') guide.observe({ type: 'game_text', text: '別の会話が始まった' }, 2000);
+    if (scenario === 'repeated-old') guide.observe({ type: 'game_text', text }, 19000);
+    guide.observe(frame([line(scenario === 'fuzzy' ? 'サクヤを手伝ろ' : anchor, scenario === 'dialogue' ? .8 : .27)], {
+      is_final: scenario !== 'partial', supplemental: scenario === 'supplemental',
+    }), ['expired', 'repeated-old'].includes(scenario) ? 20000 : 4000, scenario !== 'manual');
+    assert.equal(guide.index, 0, scenario);
+    assert.equal(guide.detected, false, scenario);
+  }
+});
+
 test('look-ahead rejects dialogue, partial/supplemental/stale frames, and manual-only mode', () => {
   const guide = tracker(['大丈夫', '進む', '待つ']);
   for (const payload of [

@@ -171,7 +171,6 @@ def test_benchmark_switch_controls_real_bus_ingress(backend_over_bus, monkeypatc
     recorder = benchmark.OCRBenchmarkRecorder(tmp_path)
     monkeypatch.setattr(benchmark, "recorder", recorder)
     monkeypatch.setattr(configuration, "is_dev", True)
-    monkeypatch.setattr(gametext, "is_message_rate_limited", lambda _source: False)
     accepted = []
 
     def ingest(observation):

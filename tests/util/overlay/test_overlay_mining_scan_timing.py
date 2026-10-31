@@ -76,7 +76,6 @@ def test_overlay_benchmark_blocks_auto_injection_and_keeps_manual_mining_context
 
     runtime = SimpleNamespace(ingest=ingest, wait_projected=lambda **_kwargs: None)
     monkeypatch.setattr(gametext, "get_authoritative_text_runtime", lambda: runtime)
-    monkeypatch.setattr(gametext, "is_message_rate_limited", lambda _source: False)
     try:
         asyncio.run(get_overlay_coords.OverlayProcessor._record_overlay_scan(None, "automatic scan"))
         assert accepted == []

@@ -964,6 +964,37 @@ test('catch-up shows the detected choice and its save reminder, persists, and Ba
   assert.equal(library.progress['test-game/one'].index, 0);
 });
 
+test('a post-skip menu replaces an expired choice confirmation even when only its first option is readable', async t => {
+  const { controller, settings, library, advance, updates } = setup(t, {
+    fetchJson: async source => source.endsWith('/guide.json') ? manifest
+      : ['大丈夫', '帰らない', '血を飲ませる', 'セーブ23', '薪の調達に行く', '進む'].map(simpleJp => ({ simpleJp })),
+  });
+  await controller.configure(settings);
+  controller.setAvailable(true, 'Akai Ito');
+  controller.observe({ ...menu, line_id: 'old-choice' });
+  advance(200);
+  controller.observe({ ...dialogue, line_id: 'dialogue' });
+  assert.equal(controller.snapshot().loggedChoice, '大丈夫');
+  advance(5000);
+  controller.setAvailable(true);
+  assert.equal(controller.snapshot().visible, false);
+  controller.observe({ type: 'game_text', text: 'サクヤを手伝う家の掃除をする薪の調達に行く' });
+  controller.observe({ type: 'overlay_clear', line_id: null });
+  advance(3500);
+  controller.observe({ ...menu, presence_id: 'skip-landing', data: [
+    line('サクヤを手伝う', .27), line('ここから町まで何往復もするのは面倒だし', .8),
+  ] });
+  assert.equal(controller.snapshot().index, 4);
+  assert.equal(controller.snapshot().visible, true);
+  assert.equal(controller.snapshot().detected, true);
+  assert.equal(controller.snapshot().loggedChoice, null);
+  assert.deepEqual(controller.snapshot().saveInstructions, ['セーブ23']);
+  assert.equal(updates.at(-1).text, '薪の調達に行く');
+  assert.equal(library.progress['test-game/one'].index, 4);
+  controller.command('back');
+  assert.equal(controller.snapshot().index, 1);
+});
+
 test('manual-only progression disables catch-up and a capture interruption needs a fresh menu to recover', async t => {
   const { controller, settings, advance } = setup(t);
   await controller.configure({ ...settings, vnGuideAutoAdvance: false });
