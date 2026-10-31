@@ -164,3 +164,4 @@ electron-src/assets/prerelease.json
 /native/gsm-input/target
 /native/gsm-runtime/bin
 /native/gsm-runtime/target
+/temp
